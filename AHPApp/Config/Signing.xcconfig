@@ -1,0 +1,5 @@
+// Shared signing defaults for all contributors.
+// Override locally in Signing.local.xcconfig without touching the Xcode project.
+AHP_DEVELOPMENT_TEAM = 
+
+#include? "Signing.local.xcconfig"

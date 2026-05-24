@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>AHPApp needs access to your local network to connect to AHP agent servers running on your computer.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lnp._tcp.</string>
+	</array>
+</dict>
+</plist>

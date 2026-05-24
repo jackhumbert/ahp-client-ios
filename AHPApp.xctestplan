@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "664C4FD8-EA6F-4D99-89EF-E5F4C3ADB9CC",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:AHPApp.xcodeproj",
+      "identifier" : "6F2049882F7744ED001049F9",
+      "name" : "AHPApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:AHPApp.xcodeproj",
+        "identifier" : "6F20499A2F7744EF001049F9",
+        "name" : "AHPAppTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:AHPApp.xcodeproj",
+        "identifier" : "6F2049A42F7744EF001049F9",
+        "name" : "AHPAppUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

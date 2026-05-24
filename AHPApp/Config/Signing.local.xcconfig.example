@@ -1,0 +1,3 @@
+// Copy this file to Signing.local.xcconfig and set your Apple Developer Team ID.
+// This file is gitignored.
+AHP_DEVELOPMENT_TEAM = 
