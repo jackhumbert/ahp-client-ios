@@ -1504,7 +1504,7 @@ private func makeDeviceCodeResponse() throws -> DeviceCodeResponse {
 
 private func makeInitializeResult(serverSeq: Int) -> InitializeResult {
     InitializeResult(
-        protocolVersion: "0.2.0",
+        protocolVersion: "0.3.0",
         serverSeq: serverSeq,
         snapshots: [Snapshot(
             resource: "ahp-root://",
