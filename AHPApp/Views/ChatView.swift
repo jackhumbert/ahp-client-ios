@@ -764,7 +764,7 @@ struct TurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // User message
-            UserBubble(text: turn.userMessage.text, attachments: turn.userMessage.attachments)
+            UserBubble(text: turn.message.text, attachments: turn.message.attachments)
 
             // Response parts
             ForEach(Array(turn.responseParts.enumerated()), id: \.offset) { _, part in
@@ -805,7 +805,7 @@ struct ActiveTurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            UserBubble(text: turn.userMessage.text, attachments: turn.userMessage.attachments)
+            UserBubble(text: turn.message.text, attachments: turn.message.attachments)
 
             ForEach(Array(turn.responseParts.enumerated()), id: \.offset) { _, part in
                 ResponsePartView(part: part)
@@ -843,7 +843,7 @@ struct PendingMessageView: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            UserBubble(text: message.userMessage.text, attachments: message.userMessage.attachments)
+            UserBubble(text: message.message.text, attachments: message.message.attachments)
                 .opacity(0.7)
 
             HStack(spacing: 4) {
