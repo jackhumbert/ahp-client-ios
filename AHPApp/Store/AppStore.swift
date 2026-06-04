@@ -1283,7 +1283,6 @@ final class AppStore {
         if let v = changes.project { summary.project = v }
         if let v = changes.model { summary.model = v }
         if let v = changes.workingDirectory { summary.workingDirectory = v }
-        if let v = changes.changesets { summary.changesets = v }
         sessionSummariesCache[uri] = summary
     }
 
