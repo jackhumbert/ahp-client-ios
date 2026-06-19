@@ -973,7 +973,7 @@ final class AppStore {
     ///   `session/turnStarted` with `queuedMessageId` linking back to the entry.
     func sendMessage(_ text: String, attachments: [MessageAttachment]? = nil) async {
         guard let uri = selectedSessionURI else { return }
-        let message = Message(text: text, origin: AnyCodable(["kind": "user"]), attachments: attachments)
+        let message = Message(text: text, origin: MessageOrigin(kind: .user), attachments: attachments)
         let hasActiveTurn = sessions[uri]?.activeTurn != nil
 
         let action: StateAction

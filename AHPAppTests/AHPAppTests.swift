@@ -1554,6 +1554,6 @@ private func makeTurnStartedAction(text: String) -> StateAction {
     .sessionTurnStarted(SessionTurnStartedAction(
         type: .sessionTurnStarted,
         turnId: UUID().uuidString,
-        message: Message(text: text, origin: AnyCodable(["kind": "user"]))
+        message: Message(text: text, origin: MessageOrigin(kind: .user))
     ))
 }
