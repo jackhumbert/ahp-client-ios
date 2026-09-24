@@ -12,3 +12,6 @@ DerivedData/
 AHPApp/Config/Signing.local.xcconfig
 
 .DS_Store
+
+# Local archives and IPAs (see README)
+build/

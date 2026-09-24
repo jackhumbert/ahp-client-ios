@@ -26,9 +26,13 @@ Siblings in `~/Github`, all speaking the same spec revision:
 | `agent-host-client-py` | Python client |
 | `agent-host-broker-py` | Python broker |
 
-Current state: **ported to spec 0.9.0, builds, not yet run.** The first
-milestone is one complete turn in the iOS simulator against
-`python -m agent_host_server`.
+Current state: **working, pre-alpha.** Ported to spec 0.9.0; a full turn
+completes in the iOS 26.5 simulator against `python -m agent_host_server`. Tool
+approvals, input requests, terminals, reconnection and the broker are ported
+but not yet exercised against a host.
+
+The bundle ID is `com.jhumbert.agent-host-client` (upstream's
+`com.rebornix.AHPApp` belongs to another developer account).
 
 **Deferred upstream reports** live in
 [`docs/deferred-upstream.md`](docs/deferred-upstream.md). Add to it when you find

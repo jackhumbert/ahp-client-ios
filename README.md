@@ -4,15 +4,16 @@ A native iOS client for the [Agent Host Protocol][ahp] (AHP) — Microsoft's
 protocol for synchronized multi-client state over AI agent sessions. SwiftUI,
 iPhone and iPad, iOS 26 and later.
 
-> ### ⚠️ Status: ported, builds, not yet run against a host.
+> ### ⚠️ Status: working, pre-alpha.
 >
-> This is a fork of `AHPApp`, the sample app in
+> A fork of `AHPApp`, the sample app in
 > [`microsoft/agent-host-protocol`][upstream], pinned to `v0.9.0`
 > ([`UPSTREAM.md`](UPSTREAM.md)). Upstream's app had not compiled against its
 > own package since the protocol moved conversations onto chat channels
 > ([`docs/deferred-upstream.md`](docs/deferred-upstream.md)); this fork is ported
-> to that model and builds with Xcode 27. It has not yet completed a turn
-> against a host.
+> to that model. A full turn completes in the iOS 26.5 simulator against the
+> sibling Python host. Not yet exercised: tool approvals, questions from the
+> agent, terminals, reconnection, the broker.
 
 ## What it does
 
@@ -36,16 +37,36 @@ Requires Xcode 27 and its Metal Toolchain
 open AHPApp.xcodeproj
 ```
 
-To run on a device, copy `AHPApp/Config/Signing.local.xcconfig.example` to
-`Signing.local.xcconfig` and set your team ID.
-
 Try it against the sibling Python host:
 
 ```bash
 python -m agent_host_server --delay 0.05
 ```
 
-then add the server `ws://127.0.0.1:4321` in the app.
+then add the server `127.0.0.1:4321` (scheme `ws`) in the app. Behind the broker,
+use scheme `wss`, host `broker.example.com`, and a personal broker token in the
+Token field — the app sends it as `?tkn=`, which the broker's Caddy route accepts.
+
+## Install on a phone with SideStore
+
+SideStore re-signs whatever it installs with your own Apple ID, so it takes an
+unsigned build:
+
+```bash
+xcodebuild archive -project AHPApp.xcodeproj -scheme AHPApp -configuration Release \
+  -destination 'generic/platform=iOS' -archivePath build/AHPApp.xcarchive \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+mkdir -p build/ipa/Payload
+cp -R build/AHPApp.xcarchive/Products/Applications/AHPApp.app build/ipa/Payload/
+(cd build/ipa && zip -qry AgentHostClient.ipa Payload)
+```
+
+Put `build/ipa/AgentHostClient.ipa` somewhere the phone can reach (iCloud Drive
+works) and open it with SideStore.
+
+To install from Xcode instead, copy `AHPApp/Config/Signing.local.xcconfig.example`
+to `Signing.local.xcconfig` and set your team ID. A free Personal Team can only
+create a profile once a device has been connected to this Mac.
 
 ## License
 
