@@ -30,6 +30,8 @@ As inherited from upstream, plus the session settings:
   changing it mid-session gets a picker instead
 - Stream chat responses — markdown, reasoning, tool calls with their inputs and
   outputs
+- Tool-call cards show what actually ran — the shell command, or the file,
+  pattern or URL — not only the host's one-line message
 - Answer the agent's questions and tool confirmations
 - An interactive terminal (SwiftTerm)
 - Microsoft dev tunnels as a way to reach a host (GitHub sign-in)

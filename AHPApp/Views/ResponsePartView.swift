@@ -171,6 +171,18 @@ struct ToolCallPartView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // What it actually ran or touched. Hosts' invocation messages can
+            // be generic ("Running Run command"), while the arguments say
+            // exactly what happened.
+            if let summary = toolInputSummary {
+                Text(summary)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(3)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.primary.opacity(0.8))
+                    .textSelection(.enabled)
+            }
+
             if let title = confirmationTitle {
                 Label(stringOrMarkdownText(title), systemImage: "lock.shield")
                     .font(.caption.weight(.medium))
@@ -425,12 +437,16 @@ struct ToolCallPartView: View {
     }
 
     private var toolIcon: String {
-        let name = toolCall.baseFields.toolName
+        // Lowercased: Claude Code's tools are `Bash`, `Read`, `Edit`, ….
+        let name = toolCall.baseFields.toolName.lowercased()
         switch name {
-        case "bash", "terminal", "runCommand": return "terminal"
-        case "readFile", "read_file": return "doc.text"
-        case "writeFile", "write_file", "editFile", "edit_file": return "doc.badge.plus"
-        case "listDirectory", "list_directory": return "folder"
+        case "bash", "terminal", "runcommand": return "terminal"
+        case "readfile", "read_file", "read", "notebookread": return "doc.text"
+        case "writefile", "write_file", "editfile", "edit_file", "write", "edit", "multiedit", "notebookedit":
+            return "doc.badge.plus"
+        case "listdirectory", "list_directory", "ls", "glob": return "folder"
+        case "grep": return "magnifyingglass"
+        case "webfetch", "websearch": return "globe"
         default: return "wrench"
         }
     }
@@ -475,6 +491,28 @@ struct ToolCallPartView: View {
         case .cancelled(let s): return s.invocationMessage
         case .unknown: return nil
         }
+    }
+
+    /// The one argument that says what a call did, from an inline JSON-object
+    /// input: a shell command, else a path, pattern, URL or query. The keys are
+    /// the ones Claude Code's and VS Code's tools use; any other input shape
+    /// shows nothing here and stays available in the detail sheet.
+    private var toolInputSummary: String? {
+        guard let text = toolInput,
+              text.hasPrefix("{"),
+              let data = text.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        if let command = object["command"] as? String, !command.isEmpty {
+            return "$ " + command
+        }
+        for key in ["file_path", "path", "notebook_path", "pattern", "url", "query"] {
+            if let value = object[key] as? String, !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     private var toolInput: String? {

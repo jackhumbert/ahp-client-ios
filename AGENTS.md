@@ -84,6 +84,20 @@ first) and `--token`.
 Code signing for a device reads `AHP_DEVELOPMENT_TEAM` from
 `AHPApp/Config/Signing.local.xcconfig` (gitignored; copy the `.example`).
 
+## Seeing what a host actually sent
+
+Before blaming the app for something missing on screen, look at the wire:
+
+- **Live conversations** (through `broker.example.com`): the user-level Claude
+  Code skill `ahp-broker` (`~/.claude/skills/ahp-broker/`) lists sessions and
+  prints each turn's tool calls exactly as the host sent them. It is read-only.
+  Its token lives in `.local/broker-test.token` here — gitignored, mode 0600,
+  label `claude-code-test` on the broker; never print or commit it.
+- **A reproducible host**: `scripts/fake_bash_host.py` serves one agent on
+  `127.0.0.1:4397` whose every turn replays a Claude-Code-shaped `Bash` call
+  (generic invocation message, command in `toolInput`). Run it with
+  `../agent-host-server-py/.venv/bin/python`.
+
 ## Layout
 
 | Path | Contents |
