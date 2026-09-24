@@ -35,6 +35,10 @@ class S:
         self.n += 1
         cid = f"call-{self.n}"
         await sink.tool_call_started(cid, "Bash", json.dumps(INPUT), display_name="Run command")
+        if self.n % 2 == 0:
+            # Every other call, the command itself as the message (the Windows
+            # node does this), which the card must not show twice.
+            await sink.tool_call_delta(cid, invocation_message=INPUT["command"][:60] + "…")
         await sink.tool_call_completed(cid, [{"type": "text", "text": "AGENTS.md\nREADME.md\n---\n42"}], success=True, past_tense_message="Done")
         await sink.text_delta(REPLY)
     async def cancel(self, reason=None): pass

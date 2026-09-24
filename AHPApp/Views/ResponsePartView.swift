@@ -183,8 +183,10 @@ struct ToolCallPartView: View {
                 statusView
             }
 
-            // Tool invocation message
-            if let msg = invocationMessage {
+            // Tool invocation message, unless it only repeats the command
+            // shown below it (hosts often use the command as the message).
+            if let msg = invocationMessage,
+               !ToolCallText.repeats(stringOrMarkdownText(msg), summary: toolInputSummary, displayName: displayName) {
                 Text(stringOrMarkdownText(msg))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -947,4 +949,33 @@ struct ContentRefView: View {
         .padding()
     }
     .environment(AppStore())
+}
+
+/// Text rules for tool-call cards.
+enum ToolCallText {
+    /// True when a host's one-line message says nothing the input summary
+    /// (`$ command`, a path, …) doesn't: the same text, maybe truncated with
+    /// "…", maybe after the tool's display name ("Run command: ls").
+    static func repeats(_ message: String, summary: String?, displayName: String) -> Bool {
+        guard let summary else { return false }
+        var message = normalized(message)
+        let prefix = normalized(displayName) + ":"
+        if message.hasPrefix(prefix) {
+            message = String(message.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        }
+        var shown = normalized(summary)
+        if shown.hasPrefix("$ ") { shown = String(shown.dropFirst(2)) }
+        guard !message.isEmpty, !shown.isEmpty else { return false }
+        return shown.hasPrefix(message) || message.hasPrefix(shown)
+    }
+
+    /// Whitespace collapsed and a trailing ellipsis dropped: hosts shorten
+    /// their messages, and the card shortens the summary.
+    private static func normalized(_ text: String) -> String {
+        var text = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        for ellipsis in ["…", "..."] where text.hasSuffix(ellipsis) {
+            text = String(text.dropLast(ellipsis.count)).trimmingCharacters(in: .whitespaces)
+        }
+        return text
+    }
 }
