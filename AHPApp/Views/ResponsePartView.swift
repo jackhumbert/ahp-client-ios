@@ -85,35 +85,12 @@ struct SystemNotificationPartView: View {
 struct MarkdownPartView: View {
     let part: MarkdownResponsePart
 
-    /// Cached attributed string — parsed once at init, not on every body evaluation.
-    private let rendered: AttributedString?
-    private let trimmed: String
-
-    init(part: MarkdownResponsePart) {
-        self.part = part
-        let content = part.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.trimmed = content
-        self.rendered = content.isEmpty ? nil : try? AttributedString(
-            markdown: content,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )
-    }
-
     var body: some View {
-        if !trimmed.isEmpty {
-            if let rendered {
-                Text(rendered)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-            } else {
-                Text(trimmed)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-            }
+        let content = part.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !content.isEmpty {
+            MarkdownBlocksView(content)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
         }
     }
 }

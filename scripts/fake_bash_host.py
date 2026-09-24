@@ -7,6 +7,28 @@ from agent_host_server.ws import serve_websocket
 INPUT = {"command": "git ls-files | grep -v '^vehicles/.*/attachments/' | head -200 && echo --- && git ls-files | wc -l",
          "description": "Survey repo files, history, and conventions"}
 
+#: Block markdown as Claude writes it, to check the app renders blocks, not hashes.
+REPLY = """### Findings
+
+The survey found **42** tracked files.
+
+- Docs are thin
+  - `README.md` has no setup section
+1. Add a setup section
+2. Add CI
+
+```sh
+git ls-files | wc -l
+```
+
+| Area | State |
+|---|---|
+| Docs | thin |
+| Tests | none |
+
+> Worth doing before the next release.
+"""
+
 class S:
     def __init__(self, ctx): self.n = 0
     async def send_user_message(self, message: UserMessage, sink: TurnSink) -> None:
@@ -14,7 +36,7 @@ class S:
         cid = f"call-{self.n}"
         await sink.tool_call_started(cid, "Bash", json.dumps(INPUT), display_name="Run command")
         await sink.tool_call_completed(cid, [{"type": "text", "text": "AGENTS.md\nREADME.md\n---\n42"}], success=True, past_tense_message="Done")
-        await sink.text_delta("Replayed one Bash call.")
+        await sink.text_delta(REPLY)
     async def cancel(self, reason=None): pass
     async def aclose(self): pass
 

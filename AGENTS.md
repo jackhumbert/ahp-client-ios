@@ -93,6 +93,25 @@ Before blaming the app for something missing on screen, look at the wire:
   prints each turn's tool calls exactly as the host sent them. It is read-only.
   Its token lives in `.local/broker-test.token` here — gitignored, mode 0600,
   label `claude-code-test` on the broker; never print or commit it.
+- **The broker in the simulator**: Debug simulator builds read
+  `AHP_DEBUG_SERVER` / `AHP_DEBUG_TOKEN` / `AHP_DEBUG_SERVER_NAME` at launch
+  (`Store/DebugLaunchServer.swift`, compiled out of every other build), so the
+  token goes from `.local/` to the app without being typed:
+
+  ```bash
+  SIMCTL_CHILD_AHP_DEBUG_SERVER=wss://broker.example.com \
+  SIMCTL_CHILD_AHP_DEBUG_SERVER_NAME="Broker (test)" \
+  SIMCTL_CHILD_AHP_DEBUG_TOKEN="$(cat .local/broker-test.token)" \
+    xcrun simctl launch <device> com.jhumbert.agent-host-client
+  ```
+
+  Only read and browse through it: creating a session there runs Claude on the
+  user's real machines.
+- **A local broker**: `scripts/local_broker.py` puts two local hosts behind the
+  sibling checkout's agent-host-broker on `127.0.0.1:4396` (no token) — see its
+  docstring. Folder URIs differ between that checkout (`ahp-file:`) and the
+  deployed broker (`file://<machine>/`); `FolderURI` handles both, and
+  `AHPAppTests/FolderURITests.swift` pins every shape.
 - **A reproducible host**: `scripts/fake_bash_host.py` serves one agent on
   `127.0.0.1:4397` whose every turn replays a Claude-Code-shaped `Bash` call
   (generic invocation message, command in `toolInput`). Run it with

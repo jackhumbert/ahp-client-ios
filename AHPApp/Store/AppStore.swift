@@ -224,6 +224,45 @@ final class AppStore {
         rootState.agents
     }
 
+    /// What to call `provider` on screen: its `displayName`, not its id. Behind
+    /// a broker the ids are machine-scoped (`claude-my-mac-mini`) and the
+    /// display names are what tell them apart ("Claude (Mac mini)").
+    func agentName(for provider: String) -> String {
+        agents.first(where: { $0.provider == provider })?.displayName ?? provider
+    }
+
+    /// Folders `provider`'s sessions worked in, most recent first.
+    ///
+    /// A broker in front of several machines advertises no default directory —
+    /// no one folder is right for all of them — so these are the best starting
+    /// points the app has. They are already machine-qualified URIs
+    /// (`file://<node>/…`), which is what browsing through a broker needs.
+    func recentFolders(for provider: String, limit: Int = 8) -> [String] {
+        var seen = Set<String>()
+        return sessionSummaries
+            .filter { $0.provider == provider }
+            .compactMap { $0.workingDirectories?.first }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    /// True when this server is an agent-host-broker using its `ahp-file:`
+    /// scheme, judged by its sessions' folders; its root lists the machines.
+    var speaksBrokerFolders: Bool {
+        sessionSummaries.contains { summary in
+            summary.workingDirectories?.contains { $0.hasPrefix("\(FolderURI.brokerScheme):") } == true
+        }
+    }
+
+    /// The sub-folders of `uri` on the host, sorted by name.
+    func listFolders(_ uri: String) async throws -> [String] {
+        try await connection.resourceList(uri: uri)
+            .filter { $0.type == "directory" }
+            .map(\.name)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     /// All models across all agents.
     var allModels: [SessionModelInfo] {
         agents.flatMap(\.models)
@@ -263,6 +302,10 @@ final class AppStore {
            servers.contains(where: { $0.id == uuid }) {
             selectedServerId = uuid
         }
+
+        #if DEBUG && targetEnvironment(simulator)
+        applyDebugLaunchServer()
+        #endif
 
         connectionSetupTask = Task { [weak self] in
             await conn.setOnAction { [weak self] envelope in

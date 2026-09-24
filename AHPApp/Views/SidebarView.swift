@@ -87,13 +87,20 @@ struct SidebarView: View {
     @State private var editingServer: ServerConfiguration?
     @State private var showingTunnels = false
     @AppStorage("sessionGroupingMode") private var groupingMode: SessionGroupingMode = .byTime
+    /// The agent the list is narrowed to, from tapping its row in the summary
+    /// card; nil shows every agent's sessions.
+    @State private var agentFilter: String?
 
     private var filteredSummaries: [SessionSummary] {
-        let summaries = store.sessionSummaries
+        var summaries = store.sessionSummaries
+        if let agentFilter {
+            summaries = summaries.filter { $0.provider == agentFilter }
+        }
         if searchText.isEmpty { return summaries }
         return summaries.filter {
             $0.title.localizedCaseInsensitiveContains(searchText)
             || $0.provider.localizedCaseInsensitiveContains(searchText)
+            || store.agentName(for: $0.provider).localizedCaseInsensitiveContains(searchText)
             || ($0.workingDirectory ?? "").localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -432,7 +439,8 @@ struct SidebarView: View {
                 summary: summary,
                 isActive: summary.status == .inProgress,
                 showFolder: showFolder,
-                showModel: showModel
+                showModel: showModel,
+                agentName: store.agentName(for: summary.provider)
             )
         }
         .buttonStyle(.plain)
@@ -508,11 +516,30 @@ struct SidebarView: View {
     // MARK: - Summary Card
 
     private var summaryCard: some View {
-        SummaryCardView(
-            agentName: store.agents.first?.provider.capitalized,
+        let summaries = store.sessionSummaries
+        let agents = store.agents.map { agent in
+            let own = summaries.filter { $0.provider == agent.provider }
+            return SummaryCardView.AgentRow(
+                provider: agent.provider,
+                name: agent.displayName,
+                active: own.filter { $0.status == .inProgress }.count,
+                idle: own.filter { $0.status != .inProgress }.count
+            )
+        }
+        return SummaryCardView(
+            // One agent: it is what this server is. Several (a broker in front
+            // of several machines): the server is, and each agent gets a row.
+            title: agents.count == 1 ? agents[0].name : (store.selectedServer?.name ?? "Agents"),
+            agents: agents,
+            selectedAgent: agentFilter,
             activeSessions: activeSessions,
             idleSessions: idleSessions,
-            connectionState: store.connectionState
+            connectionState: store.connectionState,
+            onSelectAgent: { provider in
+                withAnimation(.snappy) {
+                    agentFilter = agentFilter == provider ? nil : provider
+                }
+            }
         )
     }
 
@@ -544,13 +571,26 @@ struct SidebarView: View {
 /// Extracted as a standalone Equatable view so SwiftUI can skip re-rendering
 /// when none of the inputs change.
 struct SummaryCardView: View, Equatable {
-    let agentName: String?
+    struct AgentRow: Equatable {
+        let provider: String
+        let name: String
+        let active: Int
+        let idle: Int
+    }
+
+    let title: String
+    let agents: [AgentRow]
+    let selectedAgent: String?
     let activeSessions: Int
     let idleSessions: Int
     let connectionState: AHPConnection.ConnectionState
+    /// Excluded from `==`: a new closure every render must not defeat the skip.
+    var onSelectAgent: (String) -> Void = { _ in }
 
     static func == (lhs: SummaryCardView, rhs: SummaryCardView) -> Bool {
-        lhs.agentName == rhs.agentName
+        lhs.title == rhs.title
+            && lhs.agents == rhs.agents
+            && lhs.selectedAgent == rhs.selectedAgent
             && lhs.activeSessions == rhs.activeSessions
             && lhs.idleSessions == rhs.idleSessions
             && lhs.connectionState == rhs.connectionState
@@ -583,26 +623,13 @@ struct SummaryCardView: View, Equatable {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(agentName ?? "Agent")
+            Text(title)
                 .font(.system(size: 24, weight: .bold, design: .rounded))
 
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(healthyGreen)
-                        .frame(width: 8, height: 8)
-                    Text("\(activeSessions) active")
-                        .font(.caption.weight(.medium))
-                }
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color(.systemGray4))
-                        .frame(width: 8, height: 8)
-                    Text("\(idleSessions) idle")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
+            if agents.count > 1 {
+                agentRows
+            } else {
+                counts(active: activeSessions, idle: idleSessions)
             }
 
             HStack(spacing: 6) {
@@ -621,6 +648,60 @@ struct SummaryCardView: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(24)
         .modifier(SessionCardStyle())
+    }
+
+    /// One row per agent; tapping narrows the list to it, tapping again clears.
+    private var agentRows: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(agents, id: \.provider) { agent in
+                let isSelected = selectedAgent == agent.provider
+                Button {
+                    onSelectAgent(agent.provider)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(agent.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        counts(active: agent.active, idle: agent.idle)
+                        Image(systemName: isSelected ? "line.3.horizontal.decrease.circle.fill" : "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(.systemGray6).opacity(0.6))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityHint(isSelected ? "Shows every agent's sessions" : "Shows only this agent's sessions")
+            }
+        }
+    }
+
+    private func counts(active: Int, idle: Int) -> some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(healthyGreen)
+                    .frame(width: 8, height: 8)
+                Text("\(active) active")
+                    .font(.caption.weight(.medium))
+            }
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color(.systemGray4))
+                    .frame(width: 8, height: 8)
+                Text("\(idle) idle")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -653,6 +734,8 @@ struct SessionRow: View {
     var isActive: Bool = false
     var showFolder: Bool = true
     var showModel: Bool = true
+    /// The agent's display name; the raw provider id when not given.
+    var agentName: String? = nil
 
     var body: some View {
         HStack(spacing: 14) {
@@ -678,7 +761,7 @@ struct SessionRow: View {
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
-                    Text(summary.provider)
+                    Text(agentName ?? summary.provider)
                         .font(.caption)
                 }
                 .foregroundStyle(.secondary)

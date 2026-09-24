@@ -21,14 +21,20 @@ As inherited from upstream, plus the session settings:
 
 - Connect to one or more AHP hosts over `ws://` or `wss://`, with reconnection
   that replays missed actions when the app returns from the background
-- Browse sessions, start new ones with an agent, model and working directory
+- Several agents on one server (a broker in front of several machines): the
+  session list's card shows each agent by name with its own counts, and tapping
+  one narrows the list to it
+- Browse sessions, and start new ones with an agent, model and working
+  directory — picked from the agent's recent folders or by browsing the host's
+  folders (through a broker too, starting from its list of machines), or typed
 - A new session's **settings**, as the host describes them
   (`resolveSessionConfig`): each choice the host offers — for the Claude Code
   host, **Approvals** (Ask / Accept edits / Auto / Plan) and **Continue from** —
   appears in the New Chat sheet and is sent with `createSession`. The chat
   screen shows the approval mode it was created with; a host that allows
   changing it mid-session gets a picker instead
-- Stream chat responses — markdown, reasoning, tool calls with their inputs and
+- Stream chat responses — markdown with headings, lists, code blocks, tables
+  and quotes, reasoning, tool calls with their inputs and
   outputs
 - Tool-call cards show what actually ran — the shell command, or the file,
   pattern or URL — not only the host's one-line message

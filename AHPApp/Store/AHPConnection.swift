@@ -283,6 +283,17 @@ actor AHPConnection {
         )
     }
 
+    /// The entries of a directory on the host's filesystem. A root-channel
+    /// command; behind a broker the URI must name the machine
+    /// (`file://<node>/path`), which is how the broker knows where to send it.
+    func resourceList(uri: String) async throws -> [DirectoryEntry] {
+        let result: ResourceListResult = try await sendRequest(
+            method: "resourceList",
+            params: ResourceListParams(channel: "ahp-root://", uri: uri)
+        )
+        return result.entries
+    }
+
     /// Push a bearer token for a protected resource so subsequent agent
     /// requests can succeed. Wraps the `authenticate` JSON-RPC command.
     func authenticate(channel: String, resource: String, token: String) async throws {

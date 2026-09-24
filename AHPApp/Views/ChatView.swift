@@ -679,7 +679,8 @@ private struct SessionPermissionPickerView: View {
             // Fixed when the session was created: show it, don't offer it.
             SessionAccessoryButtonLabel(
                 systemImage: "lock.shield",
-                text: model.selectedLabel
+                text: model.selectedLabel,
+                isMenu: false
             )
             .opacity(0.7)
             .accessibilityElement(children: .ignore)
@@ -756,6 +757,8 @@ private struct SessionModelPickerView: View {
 private struct SessionAccessoryButtonLabel: View {
     let systemImage: String
     let text: String
+    /// False for a value shown but not offered: no chevron promising a menu.
+    var isMenu = true
 
     var body: some View {
         HStack(spacing: 8) {
@@ -766,9 +769,11 @@ private struct SessionAccessoryButtonLabel: View {
                 .font(.caption.weight(.medium))
                 .lineLimit(1)
 
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
+            if isMenu {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)

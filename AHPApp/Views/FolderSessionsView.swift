@@ -79,7 +79,8 @@ struct FolderSessionsView: View {
             SessionRow(
                 summary: summary,
                 isActive: summary.status == .inProgress,
-                showFolder: false
+                showFolder: false,
+                agentName: store.agentName(for: summary.provider)
             )
         }
         .buttonStyle(.plain)

@@ -12,6 +12,33 @@ struct AgentPicker: View {
     @State private var configValues: [String: AnyCodable] = [:]
     /// Bumped per request so a slow, stale answer never overwrites a newer one.
     @State private var resolveGeneration = 0
+    @State private var showingBrowser = false
+    /// True while `workingDirectory` holds what the app filled in rather than
+    /// what the user chose, so switching agents may replace it.
+    @State private var directoryWasAutofilled = false
+
+    private var recentFolders: [String] {
+        selectedProvider.isEmpty ? [] : store.recentFolders(for: selectedProvider)
+    }
+
+    /// The host's default folder, unless it is agent-host-broker's list of
+    /// machines (`ahp-file:///`): a place to start browsing, not to work.
+    private var usableDefaultDirectory: String? {
+        store.defaultDirectory.flatMap { $0 == FolderURI.brokerRoot ? nil : $0 }
+    }
+
+    /// Where Browse opens: the folder already in the field, else the host's
+    /// default, else this agent's latest folder. A broker in front of several
+    /// machines has no default, and a bare path is not routable through it.
+    private var browseStart: String? {
+        if let typed = trimmedDirectory, FolderURI.machine(typed) != nil || typed.hasPrefix("file:") {
+            return typed
+        }
+        if let start = store.defaultDirectory ?? recentFolders.first { return start }
+        // agent-host-broker lists its machines at `ahp-file:///`; its URIs in
+        // any session say this server is one.
+        return store.speaksBrokerFolders ? FolderURI.brokerRoot : nil
+    }
 
     /// Optional pre-filled working directory (e.g. from a folder section).
     var initialDirectory: String?
@@ -57,16 +84,60 @@ struct AgentPicker: View {
             }
 
             Section {
+                // A chosen folder is a URI (`file://<machine>/path`) too long to
+                // read in a one-line field; say it plainly above the field.
+                if let uri = trimmedDirectory, uri.hasPrefix("file:") || uri.hasPrefix("\(FolderURI.brokerScheme):") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(FolderURI.name(uri), systemImage: "folder.fill")
+                            .font(.body.weight(.semibold))
+                        Text(FolderURI.path(uri))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.head)
+                        if let machine = FolderURI.machine(uri) {
+                            Text("on \(machine)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+
                 TextField("e.g. /Users/me/project", text: $workingDirectory)
                     .font(.system(.body, design: .monospaced))
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
+                    .onChange(of: workingDirectory) { _, _ in directoryWasAutofilled = false }
+
+                if !recentFolders.isEmpty {
+                    Menu {
+                        ForEach(recentFolders, id: \.self) { uri in
+                            Button {
+                                setDirectory(uri, autofilled: false)
+                            } label: {
+                                Text(FolderURI.name(uri))
+                                Text(FolderURI.path(uri))
+                            }
+                        }
+                    } label: {
+                        Label("Recent folders", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+
+                Button {
+                    showingBrowser = true
+                } label: {
+                    Label("Browse…", systemImage: "folder")
+                }
+                .disabled(browseStart == nil)
             } header: {
                 Text("Working Directory")
             } footer: {
-                if let dir = store.defaultDirectory {
-                    let display = dir.hasPrefix("file://") ? String(dir.dropFirst(7)) : dir
-                    Text("Server default: \(display)")
+                if let dir = usableDefaultDirectory {
+                    Text("Server default: \(FolderURI.path(dir))")
+                } else if browseStart == nil, !selectedProvider.isEmpty {
+                    Text("This host doesn't say where its folders are. Type a path; after the first chat, its folder is offered here.")
                 }
             }
 
@@ -95,15 +166,27 @@ struct AgentPicker: View {
         .onAppear {
             if let dir = initialDirectory {
                 workingDirectory = dir
-            } else if let dir = store.defaultDirectory, workingDirectory.isEmpty {
-                workingDirectory = dir
+            } else if let dir = usableDefaultDirectory, workingDirectory.isEmpty {
+                setDirectory(dir, autofilled: true)
             }
             if store.agents.count == 1, let agent = store.agents.first {
                 selectedProvider = agent.provider
             }
         }
+        .sheet(isPresented: $showingBrowser) {
+            if let start = browseStart {
+                NavigationStack {
+                    FolderBrowserView(start: start) { setDirectory($0, autofilled: false) }
+                }
+                .environment(store)
+            }
+        }
         .onChange(of: selectedProvider) {
             selectedModel = ""
+            if trimmedDirectory == nil || directoryWasAutofilled,
+               let folder = recentFolders.first ?? usableDefaultDirectory {
+                setDirectory(folder, autofilled: true)
+            }
             // Another agent's settings are not this one's.
             configSchema = nil
             configValues = [:]
@@ -115,6 +198,12 @@ struct AgentPicker: View {
             guard !Task.isCancelled else { return }
             await resolveConfig()
         }
+    }
+
+    private func setDirectory(_ uri: String, autofilled: Bool) {
+        workingDirectory = uri
+        // Set after the field's own onChange has cleared it.
+        DispatchQueue.main.async { directoryWasAutofilled = autofilled }
     }
 
     private func resolveConfig() async {
