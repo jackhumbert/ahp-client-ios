@@ -183,11 +183,12 @@ struct ToolCallPartView: View {
                 statusView
             }
 
-            // Tool invocation message, unless it only repeats the command
-            // shown below it (hosts often use the command as the message).
-            if let msg = invocationMessage,
-               !ToolCallText.repeats(stringOrMarkdownText(msg), summary: toolInputSummary, displayName: displayName) {
-                Text(stringOrMarkdownText(msg))
+            // Tool invocation message. Hosts often use the command itself as
+            // the message (opencode, the Windows Claude node); then the call's
+            // own `description` says more, and without one the line would only
+            // repeat the command shown below it.
+            if let line = invocationLine {
+                Text(line)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -466,6 +467,27 @@ struct ToolCallPartView: View {
         case .cancelled(let s): return s.invocationMessage
         case .unknown: return nil
         }
+    }
+
+    private var invocationLine: String? {
+        guard let msg = invocationMessage else { return toolInputDescription }
+        let text = stringOrMarkdownText(msg)
+        guard ToolCallText.repeats(text, summary: toolInputSummary, displayName: displayName) else {
+            return text
+        }
+        return toolInputDescription
+    }
+
+    /// The `description` an agent gives a call (Claude Code's and opencode's
+    /// shell tools both take one), from an inline JSON-object input.
+    private var toolInputDescription: String? {
+        guard let text = toolInput, text.hasPrefix("{"),
+              let data = text.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let description = (object["description"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !description.isEmpty else { return nil }
+        return description
     }
 
     /// The one argument that says what a call did, from an inline JSON-object
