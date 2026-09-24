@@ -25,8 +25,9 @@ As inherited from upstream, plus the session settings:
   session list's card shows each agent by name with its own counts, and tapping
   one narrows the list to it
 - Browse sessions, and start new ones with an agent, model and working
-  directory — picked from the agent's recent folders or by browsing the host's
-  folders (through a broker too, starting from its list of machines), or typed
+  directory — picked from pinned or recent folders, by browsing the host's folders
+  (push navigation, a filter, swipe to choose or pin; through a broker too,
+  starting from its list of machines), or typed
 - A new session's **settings**, as the host describes them
   (`resolveSessionConfig`): each choice the host offers — for the Claude Code
   host, **Approvals** (Ask / Accept edits / Auto / Plan) and **Continue from** —

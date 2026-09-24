@@ -110,18 +110,19 @@ struct AgentPicker: View {
                     .disableAutocorrection(true)
                     .onChange(of: workingDirectory) { _, _ in directoryWasAutofilled = false }
 
-                if !recentFolders.isEmpty {
+                if !recentFolders.isEmpty || !store.pinnedFolders.isEmpty {
                     Menu {
-                        ForEach(recentFolders, id: \.self) { uri in
-                            Button {
-                                setDirectory(uri, autofilled: false)
-                            } label: {
-                                Text(FolderURI.name(uri))
-                                Text(FolderURI.path(uri))
-                            }
+                        if !store.pinnedFolders.isEmpty {
+                            Section("Pinned") { folderButtons(store.pinnedFolders) }
+                        }
+                        if !recentFolders.isEmpty {
+                            Section("Recent") { folderButtons(recentFolders) }
                         }
                     } label: {
-                        Label("Recent folders", systemImage: "clock.arrow.circlepath")
+                        Label(
+                            store.pinnedFolders.isEmpty ? "Recent folders" : "Pinned & recent folders",
+                            systemImage: "clock.arrow.circlepath"
+                        )
                     }
                 }
 
@@ -135,7 +136,10 @@ struct AgentPicker: View {
                 Text("Working Directory")
             } footer: {
                 if let dir = usableDefaultDirectory {
-                    Text("Server default: \(FolderURI.path(dir))")
+                    // Through a broker the default is a machine's root, whose
+                    // path alone reads "/".
+                    let machine = FolderURI.machine(dir).map { " on \($0)" } ?? ""
+                    Text("Server default: \(FolderURI.path(dir))\(machine)")
                 } else if browseStart == nil, !selectedProvider.isEmpty {
                     Text("This host doesn't say where its folders are. Type a path; after the first chat, its folder is offered here.")
                 }
@@ -175,10 +179,9 @@ struct AgentPicker: View {
         }
         .sheet(isPresented: $showingBrowser) {
             if let start = browseStart {
-                NavigationStack {
-                    FolderBrowserView(start: start) { setDirectory($0, autofilled: false) }
-                }
-                .environment(store)
+                // The browser owns its navigation stack (push, swipe back).
+                FolderBrowserView(start: start) { setDirectory($0, autofilled: false) }
+                    .environment(store)
             }
         }
         .onChange(of: selectedProvider) {
@@ -197,6 +200,18 @@ struct AgentPicker: View {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             await resolveConfig()
+        }
+    }
+
+    private func folderButtons(_ folders: [String]) -> some View {
+        ForEach(folders, id: \.self) { uri in
+            Button {
+                setDirectory(uri, autofilled: false)
+            } label: {
+                Text(FolderURI.name(uri))
+                Text([FolderURI.path(uri), FolderURI.machine(uri).map { "on \($0)" }]
+                    .compactMap { $0 }.joined(separator: " "))
+            }
         }
     }
 

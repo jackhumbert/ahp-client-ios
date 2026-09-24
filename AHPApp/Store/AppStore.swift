@@ -148,6 +148,9 @@ final class AppStore {
         return servers.first { $0.id == id }
     }
 
+    /// Bumped on every pin change; UserDefaults itself is not observed.
+    private var pinnedFoldersVersion = 0
+
     /// Debug-only connection/session troubleshooting data.
     var sessionDebugStatus = SessionDebugStatus()
 
@@ -255,12 +258,44 @@ final class AppStore {
         }
     }
 
-    /// The sub-folders of `uri` on the host, sorted by name.
-    func listFolders(_ uri: String) async throws -> [String] {
+    /// What is in `uri` on the host: folders first, then files, each by name.
+    func listFolder(_ uri: String) async throws -> [FolderEntry] {
         try await connection.resourceList(uri: uri)
-            .filter { $0.type == "directory" }
-            .map(\.name)
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            .map { FolderEntry(name: $0.name, isDirectory: $0.type == "directory") }
+            .sorted { lhs, rhs in
+                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    // MARK: - Pinned folders
+
+    /// Folders the user pinned on the selected server, in pin order. Stored
+    /// per server: a folder URI only means something to the host it came from.
+    var pinnedFolders: [String] {
+        guard let key = pinnedFoldersKey else { return [] }
+        _ = pinnedFoldersVersion  // observed, so pinning redraws
+        return UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    func isPinned(_ uri: String) -> Bool {
+        pinnedFolders.contains(uri)
+    }
+
+    func togglePin(_ uri: String) {
+        guard let key = pinnedFoldersKey else { return }
+        var pins = pinnedFolders
+        if let index = pins.firstIndex(of: uri) {
+            pins.remove(at: index)
+        } else {
+            pins.append(uri)
+        }
+        UserDefaults.standard.set(pins, forKey: key)
+        pinnedFoldersVersion += 1
+    }
+
+    private var pinnedFoldersKey: String? {
+        selectedServerId.map { "pinnedFolders.\($0.uuidString)" }
     }
 
     /// All models across all agents.
@@ -1825,4 +1860,13 @@ final class AppStore {
             print("[AHP] Terminal resize dispatch failed: \(error)")
         }
     }
+}
+
+/// One entry of a host folder listing.
+struct FolderEntry: Hashable {
+    let name: String
+    let isDirectory: Bool
+
+    /// Dot-files and dot-folders, hidden unless asked for.
+    var isHidden: Bool { name.hasPrefix(".") }
 }

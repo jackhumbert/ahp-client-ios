@@ -72,28 +72,96 @@ enum FolderURI {
     }
 }
 
-/// Walk the host's folders (`resourceList`) and choose one.
+/// Walk the host's folders (`resourceList`) and choose one, the way the
+/// system's own pickers feel: each folder is pushed (swipe back, back buttons
+/// named after the parent), a search field filters the folder in view, rows
+/// swipe to choose or pin, and files are listed dimmed so you can tell where
+/// you are without being able to pick one.
 ///
-/// A host only lets you see inside the root it serves; stepping above it
-/// fails, and the error is shown rather than hidden, with Up still available.
+/// Apple's document picker cannot do this: it only shows the phone's own
+/// locations, and the folders an agent works in exist only on its host.
 struct FolderBrowserView: View {
-    @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-
-    @State private var current: String
-    @State private var folders: [String] = []
-    @State private var error: String?
-    @State private var isLoading = false
+    /// The folder the stack starts at; "Enclosing folder" moves it up.
+    @State private var root: String
+    @State private var path: [String] = []
+    @AppStorage("folderBrowserShowsHidden") private var showsHidden = false
 
     let onChoose: (String) -> Void
 
     init(start: String, onChoose: @escaping (String) -> Void) {
-        _current = State(initialValue: start)
+        _root = State(initialValue: start)
         self.onChoose = onChoose
     }
 
     var body: some View {
+        NavigationStack(path: $path) {
+            list(root, isRoot: true)
+                .navigationDestination(for: String.self) { uri in
+                    list(uri, isRoot: false)
+                }
+        }
+    }
+
+    private func list(_ uri: String, isRoot: Bool) -> some View {
+        FolderListView(
+            uri: uri,
+            isRoot: isRoot,
+            showsHidden: $showsHidden,
+            choose: { chosen in
+                onChoose(chosen)
+                dismiss()
+            },
+            cancel: { dismiss() },
+            goUp: {
+                // A host only serves the tree under its root, so the stack
+                // starts where it can list; going above re-roots it.
+                if let parent = FolderURI.parent(root) {
+                    root = parent
+                    path = []
+                }
+            }
+        )
+        // A new identity per folder, so each level loads its own listing.
+        .id(uri)
+    }
+}
+
+/// One folder's contents.
+private struct FolderListView: View {
+    @Environment(AppStore.self) private var store
+
+    let uri: String
+    let isRoot: Bool
+    @Binding var showsHidden: Bool
+    let choose: (String) -> Void
+    let cancel: () -> Void
+    let goUp: () -> Void
+
+    @State private var entries: [FolderEntry] = []
+    @State private var error: String?
+    @State private var isLoading = true
+    @State private var query = ""
+
+    private var isMachineList: Bool { uri == FolderURI.brokerRoot }
+
+    private var visible: [FolderEntry] {
+        entries.filter { entry in
+            (showsHidden || !entry.isHidden)
+                && (query.isEmpty || entry.name.localizedCaseInsensitiveContains(query))
+        }
+    }
+
+    var body: some View {
         List {
+            if isRoot, query.isEmpty, !store.pinnedFolders.isEmpty {
+                Section("Pinned") {
+                    ForEach(store.pinnedFolders, id: \.self) { pinned in
+                        folderRow(pinned, title: FolderURI.name(pinned), subtitle: pinnedSubtitle(pinned))
+                    }
+                }
+            }
+
             Section {
                 if isLoading {
                     ProgressView()
@@ -102,77 +170,126 @@ struct FolderBrowserView: View {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                } else if folders.isEmpty {
-                    Text("No folders inside")
+                } else if visible.isEmpty {
+                    Text(query.isEmpty ? "Empty folder" : "No matches")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(folders, id: \.self) { name in
-                        Button {
-                            current = FolderURI.child(current, name)
-                        } label: {
-                            Label(name, systemImage: "folder")
-                                .foregroundStyle(.primary)
+                    ForEach(visible, id: \.name) { entry in
+                        if entry.isDirectory {
+                            folderRow(FolderURI.child(uri, entry.name), title: entry.name, subtitle: nil)
+                        } else {
+                            // Shown for orientation only: a working directory is a folder.
+                            Label(entry.name, systemImage: "doc")
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHint("A file; only folders can be chosen")
                         }
                     }
                 }
             } header: {
-                if current == FolderURI.brokerRoot {
-                    Text("Choose a machine").textCase(nil)
-                } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(FolderURI.path(current))
-                            .font(.footnote.monospaced())
-                            .textCase(nil)
-                            .lineLimit(2)
-                            .truncationMode(.head)
-                        if let machine = FolderURI.machine(current) {
-                            Text("on \(machine)")
-                                .textCase(nil)
-                        }
-                    }
-                }
+                header
             }
         }
-        .navigationTitle(FolderURI.name(current))
+        .searchable(text: $query, prompt: "Filter this folder")
+        .refreshable { await load() }
+        .navigationTitle(FolderURI.name(uri))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                // Enabled even when listing failed: a host may not offer
-                // browsing (the Claude host on Windows doesn't) while the
-                // folder itself is still a fine place to work.
-                Button("Choose") {
-                    onChoose(current)
-                    dismiss()
-                }
-                // The list of machines is a place to start, not to work.
-                .disabled(current == FolderURI.brokerRoot)
-            }
-            ToolbarItem(placement: .bottomBar) {
-                if let parent = FolderURI.parent(current) {
-                    Button {
-                        current = parent
-                    } label: {
-                        Label("Up to \(FolderURI.name(parent))", systemImage: "arrow.up")
-                            .labelStyle(.titleAndIcon)
-                    }
+        .toolbar { toolbar }
+        .task { await load() }
+    }
+
+    private func folderRow(_ folder: String, title: String, subtitle: String?) -> some View {
+        NavigationLink(value: folder) {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(title, systemImage: store.isPinned(folder) ? "folder.fill" : "folder")
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
                 }
             }
         }
-        .task(id: current) { await load() }
+        .swipeActions(edge: .leading) {
+            if folder != FolderURI.brokerRoot {
+                Button("Choose") { choose(folder) }
+                    .tint(.accentColor)
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button(store.isPinned(folder) ? "Unpin" : "Pin") { store.togglePin(folder) }
+                .tint(.orange)
+        }
+    }
+
+    private func pinnedSubtitle(_ folder: String) -> String {
+        [FolderURI.path(folder), FolderURI.machine(folder).map { "on \($0)" }]
+            .compactMap { $0 }
+            .joined(separator: " ")
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if isMachineList {
+            Text("Choose a machine").textCase(nil)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(FolderURI.path(uri))
+                    .font(.footnote.monospaced())
+                    .textCase(nil)
+                    .lineLimit(2)
+                    .truncationMode(.head)
+                if let machine = FolderURI.machine(uri) {
+                    Text("on \(machine)")
+                        .textCase(nil)
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        if isRoot {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", action: cancel)
+            }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            // Enabled even when listing failed: a host may not offer browsing
+            // (the Claude host on Windows doesn't) while the folder itself is
+            // still a fine place to work. The list of machines is a place to
+            // start, not to work.
+            Button("Choose") { choose(uri) }
+                .disabled(isMachineList)
+        }
+        ToolbarItem(placement: .bottomBar) {
+            Menu {
+                Toggle("Show Hidden Folders", systemImage: "eye", isOn: $showsHidden)
+                if !isMachineList {
+                    Button(
+                        store.isPinned(uri) ? "Unpin This Folder" : "Pin This Folder",
+                        systemImage: store.isPinned(uri) ? "pin.slash" : "pin"
+                    ) {
+                        store.togglePin(uri)
+                    }
+                }
+                if isRoot, let parent = FolderURI.parent(uri) {
+                    Button("Enclosing Folder (\(FolderURI.name(parent)))", systemImage: "arrow.up", action: goUp)
+                }
+            } label: {
+                Label("Options", systemImage: "ellipsis.circle")
+            }
+        }
     }
 
     private func load() async {
-        isLoading = true
-        defer { isLoading = false }
         do {
-            folders = try await store.listFolders(current)
+            entries = try await store.listFolder(uri)
             error = nil
         } catch {
-            folders = []
+            entries = []
             self.error = "Can't open this folder: \(error.localizedDescription)"
         }
+        isLoading = false
     }
 }
