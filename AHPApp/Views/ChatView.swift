@@ -216,10 +216,7 @@ struct ChatView: View {
                         .padding(.horizontal, 14)
                     }
 
-                    SessionAccessoryBar(
-                        permissionModel: sessionPermissionPickerModel,
-                        modelPickerModel: sessionModelPickerModel
-                    )
+                    SessionAccessoryBar(permissionModel: sessionPermissionPickerModel)
 
                     if showSessionDebugStatus {
                         SessionDebugStatusBar(
@@ -231,7 +228,11 @@ struct ChatView: View {
                         )
                     }
 
-                    InputBar(text: $inputText, isFocused: $inputFocused) {
+                    InputBar(
+                        text: $inputText,
+                        isFocused: $inputFocused,
+                        modelPicker: sessionModelPickerModel.map { SessionModelPickerView(model: $0, inline: true) }
+                    ) {
                         guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         let message = inputText
                         inputText = ""
@@ -462,9 +463,17 @@ private struct SessionDebugStatusBar: View {
 
 // MARK: - InputBar
 
-struct InputBar: View {
+extension InputBar where ModelPicker == EmptyView {
+    init(text: Binding<String>, isFocused: FocusState<Bool>.Binding, onSubmit: @escaping () -> Void) {
+        self.init(text: text, isFocused: isFocused, modelPicker: nil, onSubmit: onSubmit)
+    }
+}
+
+struct InputBar<ModelPicker: View>: View {
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
+    /// Sits in the box's bottom-left corner, across from Send.
+    var modelPicker: ModelPicker?
     let onSubmit: () -> Void
 
     @Environment(AppStore.self) private var store
@@ -494,7 +503,10 @@ struct InputBar: View {
 
             // Toolbar row
             HStack(spacing: 12) {
-                Spacer()
+                if let modelPicker {
+                    modelPicker
+                }
+                Spacer(minLength: 0)
 
                 // Send / Stop button
                 Button {
@@ -647,19 +659,11 @@ private struct SessionModelPickerModel {
 
 private struct SessionAccessoryBar: View {
     let permissionModel: SessionPermissionPickerModel?
-    let modelPickerModel: SessionModelPickerModel?
 
     var body: some View {
-        if permissionModel != nil || modelPickerModel != nil {
+        if let permissionModel {
             HStack(spacing: 8) {
-                if let permissionModel {
-                    SessionPermissionPickerView(model: permissionModel)
-                }
-
-                if let modelPickerModel {
-                    SessionModelPickerView(model: modelPickerModel)
-                }
-
+                SessionPermissionPickerView(model: permissionModel)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
@@ -723,6 +727,8 @@ private struct SessionPermissionPickerView: View {
 
 private struct SessionModelPickerView: View {
     let model: SessionModelPickerModel
+    /// Drawn inside the message box: no glass capsule of its own.
+    var inline = false
 
     @Environment(AppStore.self) private var store
 
@@ -743,10 +749,26 @@ private struct SessionModelPickerView: View {
                 }
             }
         } label: {
-            SessionAccessoryButtonLabel(
-                systemImage: "cpu",
-                text: model.selectedLabel
-            )
+            if inline {
+                HStack(spacing: 5) {
+                    Image(systemName: "cpu")
+                        .font(.caption.weight(.semibold))
+                    Text(model.selectedLabel)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
+            } else {
+                SessionAccessoryButtonLabel(
+                    systemImage: "cpu",
+                    text: model.selectedLabel
+                )
+            }
         }
         .accessibilityLabel(model.title)
         .accessibilityValue(model.selectedLabel)

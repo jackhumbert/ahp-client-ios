@@ -131,6 +131,48 @@ struct ToolCallPartView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            details
+                // Only the details open the sheet: a tap gesture on the whole
+                // card took the buttons' taps, so Approve opened the sheet.
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if pendingInputRequest != nil {
+                        showInputRequest = true
+                    } else {
+                        showDetail = true
+                    }
+                }
+
+            // Action buttons
+            actionButtons
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+        )
+        .onChange(of: store.currentInputRequests.map(\.id)) { _, ids in
+            // Auto-dismiss the input sheet if the request was resolved.
+            if showInputRequest, let req = pendingInputRequest, !ids.contains(req.id) {
+                showInputRequest = false
+            }
+        }
+        .sheet(isPresented: $showDetail) {
+            ToolCallDetailSheet(toolCall: toolCall)
+        }
+        .sheet(isPresented: $showInputRequest) {
+            if let req = pendingInputRequest {
+                InputRequestSheet(request: req) { showInputRequest = false }
+            }
+        }
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
             // Header
             HStack {
                 Image(systemName: toolIcon)
@@ -186,40 +228,8 @@ struct ToolCallPartView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // Action buttons
-            actionButtons
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(borderColor, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if pendingInputRequest != nil {
-                showInputRequest = true
-            } else {
-                showDetail = true
-            }
-        }
-        .onChange(of: store.currentInputRequests.map(\.id)) { _, ids in
-            // Auto-dismiss the input sheet if the request was resolved.
-            if showInputRequest, let req = pendingInputRequest, !ids.contains(req.id) {
-                showInputRequest = false
-            }
-        }
-        .sheet(isPresented: $showDetail) {
-            ToolCallDetailSheet(toolCall: toolCall)
-        }
-        .sheet(isPresented: $showInputRequest) {
-            if let req = pendingInputRequest {
-                InputRequestSheet(request: req) { showInputRequest = false }
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Status
@@ -279,108 +289,94 @@ struct ToolCallPartView: View {
         case .pendingConfirmation(let pending):
             confirmationButtonStack(options: pending.options ?? [])
         case .pendingResultConfirmation:
-            VStack(spacing: 8) {
-                Button {
+            decisionRow(
+                deny: DecisionButton(label: "Reject") {
+                    // Result denial not exposed yet
+                },
+                approve: DecisionButton(label: "Accept") {
                     if let ids = turnAndToolId {
                         Task { await store.approveToolCallResult(toolCallId: ids.toolCallId, turnId: ids.turnId) }
                     }
-                } label: {
-                    Text("Accept")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-
-                Button(role: .destructive) {
-                    // Result denial not exposed yet
-                } label: {
-                    Text("Reject")
-                        .font(.subheadline)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.red)
-            }
+            )
         default:
             EmptyView()
         }
     }
 
-    /// Render confirmation options as a vertical stack of full-width buttons.
-    /// All options are visible — no menus or chevrons — for easy thumb tapping.
-    /// Approve options render as prominent filled buttons; deny options render
-    /// as plain text buttons below, keeping visual weight on the positive action.
+    /// Deny on the left, approve on the right, side by side and equally large:
+    /// stacked one above the other, a thumb aimed at one lands on the other.
+    /// Options beyond the first of each kind ("Allow for this session", …)
+    /// sit above the row as full-width buttons.
     @ViewBuilder
     private func confirmationButtonStack(options: [ConfirmationOption]) -> some View {
         let approveOptions = options.filter { $0.kind == .approve }
         let denyOptions = options.filter { $0.kind == .deny }
 
         VStack(spacing: 8) {
-            // Approve options — prominent, full-width, easy to reach
-            if approveOptions.isEmpty {
-                Button {
-                    if let ids = turnAndToolId {
-                        Task { await store.approveToolCall(toolCallId: ids.toolCallId, turnId: ids.turnId) }
-                    }
-                } label: {
-                    Text("Approve")
+            ForEach(approveOptions.dropFirst(), id: \.id) { option in
+                Button { submit(option) } label: {
+                    Text(option.label)
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-            } else {
-                // Primary approve option — prominent filled button
-                if let primary = approveOptions.first {
-                    Button {
-                        submit(primary)
-                    } label: {
-                        Text(primary.label)
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 8))
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+            }
+            ForEach(denyOptions.dropFirst(), id: \.id) { option in
+                Button(role: .destructive) { submit(option) } label: {
+                    Text(option.label)
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
                 }
-                // Secondary approve options — bordered, less prominent
-                ForEach(approveOptions.dropFirst(), id: \.id) { option in
-                    Button {
-                        submit(option)
-                    } label: {
-                        Text(option.label)
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.roundedRectangle(radius: 8))
-                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
             }
 
-            // Deny options — subdued text buttons below
-            if denyOptions.isEmpty {
-                Button(role: .destructive) {
+            decisionRow(
+                deny: denyOptions.first.map { option in
+                    DecisionButton(label: option.label) { submit(option) }
+                } ?? DecisionButton(label: "Deny") {
                     if let ids = turnAndToolId {
                         Task { await store.denyToolCall(toolCallId: ids.toolCallId, turnId: ids.turnId) }
                     }
-                } label: {
-                    Text("Deny")
-                        .font(.subheadline)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.red)
-            } else {
-                ForEach(denyOptions, id: \.id) { option in
-                    Button(role: .destructive) {
-                        submit(option)
-                    } label: {
-                        Text(option.label)
-                            .font(.subheadline)
+                },
+                approve: approveOptions.first.map { option in
+                    DecisionButton(label: option.label) { submit(option) }
+                } ?? DecisionButton(label: "Approve") {
+                    if let ids = turnAndToolId {
+                        Task { await store.approveToolCall(toolCallId: ids.toolCallId, turnId: ids.turnId) }
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.red)
                 }
-            }
+            )
         }
+    }
+
+    private struct DecisionButton {
+        let label: String
+        let action: () -> Void
+    }
+
+    private func decisionRow(deny: DecisionButton, approve: DecisionButton) -> some View {
+        HStack(spacing: 12) {
+            Button(role: .destructive, action: deny.action) {
+                Text(deny.label)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
+            Button(action: approve.action) {
+                Text(approve.label)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .controlSize(.large)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
     }
 
     private func submit(_ option: ConfirmationOption) {
