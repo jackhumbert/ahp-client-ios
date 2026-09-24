@@ -1,0 +1,14 @@
+# Xcode
+DerivedData/
+.DerivedDataDevice
+**/xcuserdata/
+**/.swiftpm/xcode/xcuserdata/
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# Per-developer signing (see AHPApp/Config/Signing.local.xcconfig.example)
+AHPApp/Config/Signing.local.xcconfig
+
+.DS_Store
