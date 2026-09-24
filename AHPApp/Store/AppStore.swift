@@ -948,14 +948,25 @@ final class AppStore {
     // MARK: - Session Management
 
     /// Create a new session with the given agent provider, model, and optional working directory.
-    func createSession(provider: String, model: String? = nil, workingDirectory: String? = nil) async {
+    ///
+    /// `config` is what the user chose from ``resolveSessionConfig(provider:workingDirectory:values:)``.
+    /// Some hosts read it only here — the Claude Code host fixes its permission
+    /// mode for the session's life — so it cannot be deferred to a later
+    /// `session/configChanged`.
+    func createSession(
+        provider: String,
+        model: String? = nil,
+        workingDirectory: String? = nil,
+        config: [String: AnyCodable] = [:]
+    ) async {
         let sessionId = UUID().uuidString
         let uri = "\(provider):/\(sessionId)"
         do {
             try await connection.createSession(params: CreateSessionParams(
                 channel: uri,
                 provider: provider,
-                workingDirectories: workingDirectory.map { [$0] }
+                workingDirectories: workingDirectory.map { [$0] },
+                config: config.isEmpty ? nil : config
             ))
             // The model is chosen per message now, not per session: remember
             // it so ``sendMessage(_:attachments:)`` stamps it on each turn.
@@ -972,6 +983,25 @@ final class AppStore {
             selectedSessionURI = uri
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The settings `provider` offers a new session, given the values chosen so
+    /// far, or nil if the host could not answer (the sheet then just omits them).
+    func resolveSessionConfig(
+        provider: String,
+        workingDirectory: String?,
+        values: [String: AnyCodable]
+    ) async -> ResolveSessionConfigResult? {
+        do {
+            return try await connection.resolveSessionConfig(
+                provider: provider,
+                workingDirectory: workingDirectory,
+                config: values
+            )
+        } catch {
+            print("[AHP] resolveSessionConfig failed: \(error)")
+            return nil
         }
     }
 

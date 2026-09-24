@@ -533,8 +533,18 @@ struct InputBar: View {
 
 // MARK: - Session Permission Picker
 
-private let autoApproveConfigKey = "autoApprove"
-private let wellKnownAutoApproveValues: Set<String> = ["default", "autoApprove", "autopilot"]
+/// Session config properties that mean "how are tool calls approved", with the
+/// values that identify each. A property is only treated as a permission
+/// setting when every value it offers is one of these, so a host's unrelated
+/// property that happens to share a name is left alone.
+///
+/// - `autoApprove`: VS Code / Copilot's setting.
+/// - `permissionMode`: Claude Code's own modes, which `agent-host-server-claude`
+///   exposes under Claude Code's names (Ask, Accept edits, Auto, Plan).
+private let permissionConfigKeys: [(key: String, values: Set<String>)] = [
+    ("autoApprove", ["default", "autoApprove", "autopilot"]),
+    ("permissionMode", ["default", "acceptEdits", "auto", "plan", "bypassPermissions"]),
+]
 
 private struct SessionPermissionOption: Identifiable {
     let value: String
@@ -549,29 +559,36 @@ private struct SessionModelOption: Identifiable {
 }
 
 private struct SessionPermissionPickerModel {
+    /// The config property this picker reads and writes.
+    let key: String
     let title: String
     let options: [SessionPermissionOption]
     let selectedValue: String
+    /// False when the host fixes the setting for the session's life (not
+    /// `sessionMutable`, or `readOnly`): the current mode is shown, not offered.
+    let isMutable: Bool
 
     var selectedLabel: String {
         options.first(where: { $0.value == selectedValue })?.label ?? selectedValue
     }
 
     init?(session: SessionState) {
-        guard let config = session.config,
-              let property = config.schema.properties[autoApproveConfigKey],
-              property.type == "string",
-              property.sessionMutable == true,
-              property.readOnly != true,
-              // `enum` holds JSON values since 0.9.0; this picker only
-              // understands an all-string enum.
-              let rawValues = property.enum,
-              case let values = rawValues.compactMap({ $0.value as? String }),
-              values.count == rawValues.count,
-              values.contains("default"),
-              values.allSatisfy({ wellKnownAutoApproveValues.contains($0) }) else {
-            return nil
-        }
+        guard let config = session.config else { return nil }
+        let match = permissionConfigKeys.lazy.compactMap { candidate -> (String, SessionConfigPropertySchema, [AnyCodable], [String])? in
+            guard let property = config.schema.properties[candidate.key],
+                  property.type == "string",
+                  // `enum` holds JSON values since 0.9.0; this picker only
+                  // understands an all-string enum.
+                  let rawValues = property.enum,
+                  case let values = rawValues.compactMap({ $0.value as? String }),
+                  values.count == rawValues.count,
+                  values.contains("default"),
+                  values.allSatisfy({ candidate.values.contains($0) }) else {
+                return nil
+            }
+            return (candidate.key, property, rawValues, values)
+        }.first
+        guard let (key, property, _, values) = match else { return nil }
 
         let options = values.enumerated().map { index, value in
             let label: String
@@ -589,14 +606,16 @@ private struct SessionPermissionPickerModel {
 
         guard !options.isEmpty else { return nil }
 
-        let currentValue = config.values[autoApproveConfigKey]?.value as? String
+        let currentValue = config.values[key]?.value as? String
         let selectedValue = currentValue.flatMap { value in
             options.contains(where: { $0.value == value }) ? value : nil
         } ?? "default"
 
+        self.key = key
         self.title = property.title
         self.options = options
         self.selectedValue = selectedValue
+        self.isMutable = property.sessionMutable == true && property.readOnly != true
     }
 }
 
@@ -654,13 +673,30 @@ private struct SessionPermissionPickerView: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
+        if model.isMutable {
+            menu
+        } else {
+            // Fixed when the session was created: show it, don't offer it.
+            SessionAccessoryButtonLabel(
+                systemImage: "lock.shield",
+                text: model.selectedLabel
+            )
+            .opacity(0.7)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(model.title)
+            .accessibilityValue(model.selectedLabel)
+            .accessibilityHint("Chosen when the session was created")
+        }
+    }
+
+    private var menu: some View {
         Menu {
             ForEach(model.options) { option in
                 Button {
                     guard option.value != model.selectedValue else { return }
                     Task {
                         await store.setSessionConfigValue(
-                            property: autoApproveConfigKey,
+                            property: model.key,
                             value: AnyCodable(option.value)
                         )
                     }

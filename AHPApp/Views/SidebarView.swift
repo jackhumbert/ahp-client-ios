@@ -320,9 +320,16 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $showingNewSession) {
             NavigationStack {
-                AgentPicker(initialDirectory: newSessionDirectory) { provider, model, workingDirectory in
+                AgentPicker(initialDirectory: newSessionDirectory) { provider, model, workingDirectory, config in
                     showingNewSession = false
-                    Task { await store.createSession(provider: provider, model: model, workingDirectory: workingDirectory) }
+                    Task {
+                        await store.createSession(
+                            provider: provider,
+                            model: model,
+                            workingDirectory: workingDirectory,
+                            config: config
+                        )
+                    }
                 }
                 .navigationTitle("New Chat")
                 .navigationBarTitleDisplayMode(.inline)
@@ -742,9 +749,16 @@ struct NewSessionButton: View {
         .opacity(store.connectionState != .connected ? 0.7 : 1)
         .sheet(isPresented: $showingPicker) {
             NavigationStack {
-                AgentPicker { provider, model, workingDirectory in
+                AgentPicker { provider, model, workingDirectory, config in
                     showingPicker = false
-                    Task { await store.createSession(provider: provider, model: model, workingDirectory: workingDirectory) }
+                    Task {
+                        await store.createSession(
+                            provider: provider,
+                            model: model,
+                            workingDirectory: workingDirectory,
+                            config: config
+                        )
+                    }
                 }
                 .navigationTitle("New Chat")
                 .navigationBarTitleDisplayMode(.inline)
@@ -754,7 +768,8 @@ struct NewSessionButton: View {
                     }
                 }
             }
-            .presentationDetents([.medium, .large])
+            // Full height: the host's settings sit below the fold of a half sheet.
+            .presentationDetents([.large])
         }
     }
 }

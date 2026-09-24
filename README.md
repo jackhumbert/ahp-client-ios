@@ -17,11 +17,17 @@ iPhone and iPad, iOS 26 and later.
 
 ## What it does
 
-As inherited from upstream:
+As inherited from upstream, plus the session settings:
 
 - Connect to one or more AHP hosts over `ws://` or `wss://`, with reconnection
   that replays missed actions when the app returns from the background
 - Browse sessions, start new ones with an agent, model and working directory
+- A new session's **settings**, as the host describes them
+  (`resolveSessionConfig`): each choice the host offers — for the Claude Code
+  host, **Approvals** (Ask / Accept edits / Auto / Plan) and **Continue from** —
+  appears in the New Chat sheet and is sent with `createSession`. The chat
+  screen shows the approval mode it was created with; a host that allows
+  changing it mid-session gets a picker instead
 - Stream chat responses — markdown, reasoning, tool calls with their inputs and
   outputs
 - Answer the agent's questions and tool confirmations

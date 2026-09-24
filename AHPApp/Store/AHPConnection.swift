@@ -264,6 +264,25 @@ actor AHPConnection {
         let _: AnyCodable? = try await sendRequest(method: "createSession", params: params)
     }
 
+    /// The settings `provider` offers a new session, given the values chosen so
+    /// far. A root-channel command (`types/commands-root.ts`), and each answer is
+    /// the full property set rather than a delta, so ask again after every change.
+    func resolveSessionConfig(
+        provider: String,
+        workingDirectory: String?,
+        config: [String: AnyCodable]
+    ) async throws -> ResolveSessionConfigResult {
+        try await sendRequest(
+            method: "resolveSessionConfig",
+            params: ResolveSessionConfigParams(
+                channel: "ahp-root://",
+                provider: provider,
+                workingDirectory: workingDirectory,
+                config: config.isEmpty ? nil : config
+            )
+        )
+    }
+
     /// Push a bearer token for a protected resource so subsequent agent
     /// requests can succeed. Wraps the `authenticate` JSON-RPC command.
     func authenticate(channel: String, resource: String, token: String) async throws {
