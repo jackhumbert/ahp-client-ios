@@ -4,16 +4,19 @@ A native iOS client for the [Agent Host Protocol][ahp] (AHP) — Microsoft's
 protocol for synchronized multi-client state over AI agent sessions. SwiftUI,
 iPhone and iPad, iOS 26 and later.
 
-> ### ⚠️ Status: forked, not yet run.
+> ### ⚠️ Status: ported, builds, not yet run against a host.
 >
 > This is a fork of `AHPApp`, the sample app in
 > [`microsoft/agent-host-protocol`][upstream], pinned to `v0.9.0`
-> ([`UPSTREAM.md`](UPSTREAM.md)). It resolves its packages against that pin;
-> it has not yet completed a turn against a host.
+> ([`UPSTREAM.md`](UPSTREAM.md)). Upstream's app had not compiled against its
+> own package since the protocol moved conversations onto chat channels
+> ([`docs/deferred-upstream.md`](docs/deferred-upstream.md)); this fork is ported
+> to that model and builds with Xcode 27. It has not yet completed a turn
+> against a host.
 
 ## What it does
 
-As inherited from upstream, unchanged so far:
+As inherited from upstream:
 
 - Connect to one or more AHP hosts over `ws://` or `wss://`, with reconnection
   that replays missed actions when the app returns from the background

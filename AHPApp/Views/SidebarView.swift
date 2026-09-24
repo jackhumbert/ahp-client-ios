@@ -35,8 +35,13 @@ enum SessionTimeGroup: String, CaseIterable, Identifiable {
         }
     }
 
-    static func group(for timestamp: Int) -> SessionTimeGroup {
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
+    /// Groups a wire timestamp (ISO 8601 since spec 0.9.0). One that fails to
+    /// parse lands in `.older` rather than being dropped.
+    static func group(for timestamp: String) -> SessionTimeGroup {
+        group(for: AHPTimestamp.date(from: timestamp) ?? .distantPast)
+    }
+
+    static func group(for date: Date) -> SessionTimeGroup {
         let now = Date()
         let calendar = Calendar.current
         let startOfToday = calendar.startOfDay(for: now)
@@ -122,8 +127,9 @@ struct SidebarView: View {
         }
         return buckets.values
             .sorted { lhs, rhs in
-                let lhsTime = lhs.sessions.first?.modifiedAt ?? 0
-                let rhsTime = rhs.sessions.first?.modifiedAt ?? 0
+                // ISO 8601 UTC strings order correctly as plain strings.
+                let lhsTime = lhs.sessions.first?.modifiedAt ?? ""
+                let rhsTime = rhs.sessions.first?.modifiedAt ?? ""
                 return lhsTime > rhsTime
             }
             .map { group, sessions in
@@ -688,8 +694,8 @@ struct SessionRow: View {
         .modifier(SessionCardStyle())
     }
 
-    private func relativeTime(from timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
+    private func relativeTime(from timestamp: String) -> String {
+        guard let date = AHPTimestamp.date(from: timestamp) else { return "" }
         let seconds = Int(Date().timeIntervalSince(date))
         if seconds < 60 { return "now" }
         let minutes = seconds / 60
@@ -780,5 +786,15 @@ struct ConnectionIndicator: View {
         case .reconnecting: "Reconnecting…"
         case .disconnected: "Disconnected"
         }
+    }
+}
+
+extension SessionSummary {
+    /// The folder the sidebar files this session under.
+    ///
+    /// Since 0.9.0 a session can span several working directories
+    /// (`workingDirectories`); the first is the one it was created in.
+    var workingDirectory: String? {
+        workingDirectories?.first
     }
 }

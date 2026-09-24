@@ -217,7 +217,7 @@ struct ToolCallPartView: View {
                 showDetail = true
             }
         }
-        .onChange(of: store.currentSession?.inputRequests?.map(\.id) ?? []) { _, ids in
+        .onChange(of: store.currentInputRequests.map(\.id)) { _, ids in
             // Auto-dismiss the input sheet if the request was resolved.
             if showInputRequest, let req = pendingInputRequest, !ids.contains(req.id) {
                 showInputRequest = false
@@ -245,6 +245,9 @@ struct ToolCallPartView: View {
                 .foregroundStyle(.orange)
         case .running:
             ProgressView().controlSize(.mini)
+        case .authRequired:
+            Image(systemName: "lock.circle.fill")
+                .foregroundStyle(.orange)
         case .pendingResultConfirmation:
             Image(systemName: "questionmark.circle.fill")
                 .foregroundStyle(.orange)
@@ -253,6 +256,9 @@ struct ToolCallPartView: View {
                 .foregroundStyle(s.success ? .green : .red)
         case .cancelled:
             Image(systemName: "slash.circle.fill")
+                .foregroundStyle(.secondary)
+        case .unknown:
+            Image(systemName: "questionmark.circle")
                 .foregroundStyle(.secondary)
         }
     }
@@ -404,6 +410,10 @@ struct ToolCallPartView: View {
                     turnId: ids.turnId,
                     selectedOptionId: option.id
                 )
+            case .unknown:
+                // An option kind from a newer host: we cannot tell whether it
+                // approves, so send nothing rather than guess.
+                break
             }
         }
     }
@@ -427,10 +437,11 @@ struct ToolCallPartView: View {
 
     private var toolColor: Color {
         switch toolCall {
-        case .pendingConfirmation, .pendingResultConfirmation: .orange
+        case .pendingConfirmation, .pendingResultConfirmation, .authRequired: .orange
         case .running, .streaming: .blue
         case .completed(let s): s.success ? .secondary : .red
         case .cancelled: .secondary
+        case .unknown: .secondary
         }
     }
 
@@ -460,7 +471,9 @@ struct ToolCallPartView: View {
         case .running(let s): return s.invocationMessage
         case .pendingResultConfirmation(let s): return s.invocationMessage
         case .completed(let s): return s.invocationMessage
+        case .authRequired(let s): return s.invocationMessage
         case .cancelled(let s): return s.invocationMessage
+        case .unknown: return nil
         }
     }
 
@@ -499,7 +512,7 @@ struct ToolCallPartView: View {
     /// The turnId comes from the current active turn in the store.
     private var turnAndToolId: (turnId: String, toolCallId: String)? {
         let tcId = toolCall.toolCallId
-        if let activeTurn = store.currentSession?.activeTurn {
+        if let activeTurn = store.currentChat?.activeTurn {
             return (activeTurn.id, tcId)
         }
         return nil
@@ -509,9 +522,9 @@ struct ToolCallPartView: View {
     /// likely target. The protocol does not currently link a request to a
     /// specific tool call, so we attribute it to the latest streaming/running
     /// tool call in the active turn (assumed to be `self`).
-    private var pendingInputRequest: SessionInputRequest? {
-        guard let session = store.currentSession,
-              let requests = session.inputRequests, !requests.isEmpty else {
+    private var pendingInputRequest: ChatInputRequest? {
+        let requests = store.currentInputRequests
+        guard !requests.isEmpty else {
             return nil
         }
         // Only attach to streaming/running tools — pendingConfirmation /
@@ -522,7 +535,7 @@ struct ToolCallPartView: View {
         }
         // If multiple in-progress tool calls exist in the active turn, only
         // the most recent one owns the prompt to avoid showing duplicate CTAs.
-        let activeParts = session.activeTurn?.responseParts ?? []
+        let activeParts = store.currentChat?.activeTurn?.responseParts ?? []
         let lastRunningId: String? = activeParts.reversed().compactMap { part -> String? in
             guard case .toolCall(let tc) = part else { return nil }
             switch tc.toolCall {
@@ -685,6 +698,10 @@ struct ToolResultContentView: View {
             Label(s.resource, systemImage: "person.2")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        case .unknown:
+            Label("Result this app can't display", systemImage: "questionmark.square.dashed")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -709,7 +726,7 @@ struct TerminalToolResultView: View {
                 .foregroundStyle(.secondary)
 
             if let state {
-                if state.content.isEmpty && state.exitCode == nil {
+                if state.content.isEmpty && !state.hasExited {
                     Text("(waiting for output…)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -823,7 +840,6 @@ struct ContentRefView: View {
                 toolCallId: "tc0",
                 toolName: "editFile",
                 displayName: "Edit file",
-                toolInput: .contentRef(ContentRef(uri: "file:///tool-inputs/tc0.json")),
                 status: .streaming,
                 invocationMessage: .string("Editing src/main.ts")
             )))
@@ -848,8 +864,8 @@ struct ContentRefView: View {
                 displayName: "Run command",
                 invocationMessage: .string("Running: npm test"),
                 toolInput: .inline("{\"command\": \"npm test\"}"),
-                status: .running,
-                confirmed: .notNeeded
+                confirmed: .notNeeded,
+                status: .running
             )))
 
             // Tool Call — Completed
@@ -863,8 +879,8 @@ struct ContentRefView: View {
                 success: true,
                 pastTenseMessage: .string("Read package.json"),
                 content: [.text(ToolResultTextContent(type: .text, text: "{\"name\": \"my-app\"}"))],
-                status: .completed,
-                confirmed: .notNeeded
+                confirmed: .notNeeded,
+                status: .completed
             )))
 
             // Tool Call — Failed
@@ -877,8 +893,8 @@ struct ContentRefView: View {
                 toolInput: .inline("{\"command\": \"rm -rf /\"}"),
                 success: false,
                 pastTenseMessage: .string("Command failed"),
-                status: .completed,
-                confirmed: .userAction
+                confirmed: .userAction,
+                status: .completed
             )))
 
             // Tool Call — Pending Result Confirmation
@@ -892,8 +908,8 @@ struct ContentRefView: View {
                 success: true,
                 pastTenseMessage: .string("Wrote config.json"),
                 content: [.text(ToolResultTextContent(type: .text, text: "File written successfully"))],
-                status: .pendingResultConfirmation,
-                confirmed: .userAction
+                confirmed: .userAction,
+                status: .pendingResultConfirmation
             )))
 
             // Tool Call — Cancelled

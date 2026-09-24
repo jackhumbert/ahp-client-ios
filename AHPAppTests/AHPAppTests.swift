@@ -1555,9 +1555,10 @@ private func timestampMilliseconds(_ date: Date) -> Int {
 }
 
 private func makeTurnStartedAction(text: String) -> StateAction {
-    .sessionTurnStarted(SessionTurnStartedAction(
-        type: .sessionTurnStarted,
+    .chatTurnStarted(ChatTurnStartedAction(
+        type: .chatTurnStarted,
         turnId: UUID().uuidString,
+        startedAt: isoTimestamp(millis: 0),
         message: Message(text: text, origin: MessageOrigin(kind: .user))
     ))
 }

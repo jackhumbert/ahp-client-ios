@@ -94,11 +94,7 @@ final class AHPTerminalUIView: TerminalView, TerminalViewDelegate {
         // Feed any brand-new content parts that appeared since the last sync.
         for i in replayedContentCount..<parts.count {
             let part = parts[i]
-            let text: String
-            switch part {
-            case .unclassified(let u): text = u.value
-            case .command(let c): text = c.output
-            }
+            let text = terminalText(of: part)
 
             if i == replayedContentCount && i == parts.count - 1 {
                 // This is the tail part that may have grown since last sync.
@@ -120,11 +116,7 @@ final class AHPTerminalUIView: TerminalView, TerminalViewDelegate {
         if parts.count == replayedContentCount && !parts.isEmpty {
             let tailIndex = parts.count - 1
             let part = parts[tailIndex]
-            let text: String
-            switch part {
-            case .unclassified(let u): text = u.value
-            case .command(let c): text = c.output
-            }
+            let text = terminalText(of: part)
             if text.count > tailPartFedLength {
                 let startIdx = text.index(text.startIndex, offsetBy: tailPartFedLength)
                 let delta = String(text[startIdx...])
@@ -136,11 +128,7 @@ final class AHPTerminalUIView: TerminalView, TerminalViewDelegate {
         if parts.count > replayedContentCount {
             // Moved to new parts — reset tail tracking for the latest part.
             let lastPart = parts[parts.count - 1]
-            let lastText: String
-            switch lastPart {
-            case .unclassified(let u): lastText = u.value
-            case .command(let c): lastText = c.output
-            }
+            let lastText = terminalText(of: lastPart)
             tailPartFedLength = lastText.count
             replayedContentCount = parts.count
         }
@@ -163,24 +151,28 @@ final class AHPTerminalUIView: TerminalView, TerminalViewDelegate {
         lockedToServerSize = true
 
         for part in state.content {
-            switch part {
-            case .unclassified(let u):
-                if !u.value.isEmpty { feedText(u.value) }
-            case .command(let c):
-                if !c.output.isEmpty { feedText(c.output) }
-            }
+            let text = terminalText(of: part)
+            if !text.isEmpty { feedText(text) }
         }
 
         replayedContentCount = state.content.count
         if let lastPart = state.content.last {
-            switch lastPart {
-            case .unclassified(let u): tailPartFedLength = u.value.count
-            case .command(let c): tailPartFedLength = c.output.count
-            }
+            tailPartFedLength = terminalText(of: lastPart).count
         }
     }
 
     // MARK: - Helpers
+
+    /// The text a content part contributes to the screen. A part of a kind this
+    /// build does not know (`.unknown`, from a newer host) contributes nothing
+    /// rather than being guessed at.
+    private func terminalText(of part: TerminalContentPart) -> String {
+        switch part {
+        case .unclassified(let u): return u.value
+        case .command(let c): return c.output
+        default: return ""
+        }
+    }
 
     private func feedText(_ text: String) {
         let bytes = Array(text.utf8)

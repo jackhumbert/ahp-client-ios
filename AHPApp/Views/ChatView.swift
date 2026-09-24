@@ -33,7 +33,7 @@ struct ChatView: View {
     /// call. Used to suppress the floating input-request prompt because the
     /// owning tool card already shows its own "Respond" CTA.
     private var hasInProgressToolCall: Bool {
-        guard let parts = store.currentSession?.activeTurn?.responseParts else { return false }
+        guard let parts = store.currentChat?.activeTurn?.responseParts else { return false }
         for part in parts {
             if case .toolCall(let tc) = part {
                 switch tc.toolCall {
@@ -65,22 +65,22 @@ struct ChatView: View {
                                 .padding(.top, 24)
                         }
 
-                        if let session = store.currentSession {
+                        if let chat = store.currentChat {
                             // Completed turns
-                            ForEach(session.turns, id: \.id) { turn in
+                            ForEach(chat.turns, id: \.id) { turn in
                                 TurnView(turn: turn, activeTurnId: nil)
                                     .id(turn.id)
                             }
 
                             // Active turn (streaming)
-                            if let activeTurn = session.activeTurn {
+                            if let activeTurn = chat.activeTurn {
                                 ActiveTurnView(turn: activeTurn)
                                     .id("active-\(activeTurn.id)")
                             }
 
                             // Steering message — will be injected into the
                             // current turn at the server's next opportunity.
-                            if let steering = session.steeringMessage {
+                            if let steering = chat.steeringMessage {
                                 PendingMessageView(
                                     message: steering,
                                     caption: "Steering",
@@ -92,7 +92,7 @@ struct ChatView: View {
                             // Queued messages — auto-started as new turns
                             // after the current turn completes (or immediately
                             // when the session is idle).
-                            if let queued = session.queuedMessages {
+                            if let queued = chat.queuedMessages {
                                 ForEach(queued, id: \.id) { msg in
                                     PendingMessageView(
                                         message: msg,
@@ -124,26 +124,26 @@ struct ChatView: View {
                     isAtBottom = true
                     scrollToBottom(proxy, animated: false)
                 }
-                .onChange(of: store.currentSession?.activeTurn?.responseParts.count) {
+                .onChange(of: store.currentChat?.activeTurn?.responseParts.count) {
                     if isAtBottom {
                         scrollToBottom(proxy, animated: true)
                     }
                 }
-                .onChange(of: store.currentSession?.turns.count) {
+                .onChange(of: store.currentChat?.turns.count) {
                     if isAtBottom {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             scrollToBottom(proxy, animated: true)
                         }
                     }
                 }
-                .onChange(of: store.currentSession?.queuedMessages?.count) {
+                .onChange(of: store.currentChat?.queuedMessages?.count) {
                     if isAtBottom {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             scrollToBottom(proxy, animated: true)
                         }
                     }
                 }
-                .onChange(of: store.currentSession?.steeringMessage?.id) {
+                .onChange(of: store.currentChat?.steeringMessage?.id) {
                     if isAtBottom {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             scrollToBottom(proxy, animated: true)
@@ -203,8 +203,8 @@ struct ChatView: View {
                     // Pending input requests (elicitation) — shown only when
                     // no in-progress tool call owns the request. The active
                     // tool card embeds its own "Respond" CTA in that case.
-                    if let requests = store.currentSession?.inputRequests,
-                       !requests.isEmpty,
+                    let requests = store.currentInputRequests
+                    if !requests.isEmpty,
                        !hasInProgressToolCall {
                         VStack(spacing: 8) {
                             ForEach(requests, id: \.id) { request in
@@ -272,7 +272,7 @@ struct ChatView: View {
                 presentedInputRequestId = nil
             }
         }
-        .onChange(of: store.currentSession?.inputRequests?.map(\.id) ?? []) { _, ids in
+        .onChange(of: store.currentInputRequests.map(\.id)) { _, ids in
             // Auto-dismiss the sheet if the active request was resolved.
             if let id = presentedInputRequestId, !ids.contains(id) {
                 presentedInputRequestId = nil
@@ -281,16 +281,15 @@ struct ChatView: View {
     }
 
     /// The full request currently presented in the modal sheet, if any.
-    private var presentedInputRequest: SessionInputRequest? {
-        guard let id = presentedInputRequestId,
-              let requests = store.currentSession?.inputRequests else { return nil }
-        return requests.first(where: { $0.id == id })
+    private var presentedInputRequest: ChatInputRequest? {
+        guard let id = presentedInputRequestId else { return nil }
+        return store.currentInputRequests.first(where: { $0.id == id })
     }
 }
 
-/// Wrapper to make `SessionInputRequest` `Identifiable` for `.sheet(item:)`.
+/// Wrapper to make `ChatInputRequest` `Identifiable` for `.sheet(item:)`.
 private struct IdentifiedRequest: Identifiable {
-    let request: SessionInputRequest
+    let request: ChatInputRequest
     var id: String { request.id }
 }
 
@@ -471,7 +470,7 @@ struct InputBar: View {
     @Environment(AppStore.self) private var store
 
     private var isStreaming: Bool {
-        store.currentSession?.activeTurn != nil
+        store.currentChat?.activeTurn != nil
     }
 
     private var canSend: Bool {
@@ -564,7 +563,11 @@ private struct SessionPermissionPickerModel {
               property.type == "string",
               property.sessionMutable == true,
               property.readOnly != true,
-              let values = property.enum,
+              // `enum` holds JSON values since 0.9.0; this picker only
+              // understands an all-string enum.
+              let rawValues = property.enum,
+              case let values = rawValues.compactMap({ $0.value as? String }),
+              values.count == rawValues.count,
               values.contains("default"),
               values.allSatisfy({ wellKnownAutoApproveValues.contains($0) }) else {
             return nil
@@ -1121,8 +1124,8 @@ private struct InputBarPreviewWrapper: View {
                 toolInput: .contentRef(ContentRef(uri: "file:///tool-inputs/tc1.json")),
                 success: true,
                 pastTenseMessage: .string("Read src/auth.swift"),
-                status: .completed,
-                confirmed: .notNeeded
+                confirmed: .notNeeded,
+                status: .completed
             )))
             ToolCallPartView(toolCall: .completed(ToolCallCompletedState(
                 toolCallId: "tc2",
@@ -1132,8 +1135,8 @@ private struct InputBarPreviewWrapper: View {
                 toolInput: .contentRef(ContentRef(uri: "file:///tool-inputs/tc2.json")),
                 success: true,
                 pastTenseMessage: .string("Edited src/auth.swift"),
-                status: .completed,
-                confirmed: .notNeeded
+                confirmed: .notNeeded,
+                status: .completed
             )))
             MarkdownPartView(part: MarkdownResponsePart(
                 kind: .markdown,
@@ -1167,8 +1170,8 @@ private struct InputBarPreviewWrapper: View {
                 displayName: "Read file",
                 invocationMessage: .string("Reading src/auth/token.swift"),
                 toolInput: .contentRef(ContentRef(uri: "file:///tool-inputs/tc4.json")),
-                status: .running,
-                confirmed: .notNeeded
+                confirmed: .notNeeded,
+                status: .running
             )))
 
             // Floating input

@@ -6,7 +6,7 @@ import SwiftUI
 /// Compact prompt card shown above the input bar when the agent is requesting
 /// input. Tapping it presents the full form in a modal sheet.
 struct InputRequestPrompt: View {
-    let request: SessionInputRequest
+    let request: ChatInputRequest
     let onTap: () -> Void
 
     private var primaryText: String {
@@ -67,7 +67,7 @@ struct InputRequestPrompt: View {
 /// toolbar Cancel/Submit actions. Auto-dismissal on resolution is handled
 /// by the presenter.
 struct InputRequestSheet: View {
-    let request: SessionInputRequest
+    let request: ChatInputRequest
     let onDismiss: () -> Void
     @Environment(AppStore.self) private var store
 
@@ -143,17 +143,17 @@ struct InputRequestSheet: View {
 
     // MARK: Helpers
 
-    private func answer(for id: String) -> SessionInputAnswer? {
+    private func answer(for id: String) -> ChatInputAnswer? {
         request.answers?[id]
     }
 
-    private var submittedAnswers: [String: SessionInputAnswer]? {
+    private var submittedAnswers: [String: ChatInputAnswer]? {
         guard let current = request.answers else { return nil }
-        var result: [String: SessionInputAnswer] = [:]
+        var result: [String: ChatInputAnswer] = [:]
         for (id, a) in current {
             switch a {
             case .draft(let v):
-                result[id] = .submitted(SessionInputAnswered(state: .submitted, value: v.value))
+                result[id] = .submitted(ChatInputAnswered(state: .submitted, value: v.value))
             case .submitted, .skipped:
                 result[id] = a
             }
@@ -171,23 +171,26 @@ struct InputRequestSheet: View {
         return true
     }
 
-    private func questionId(of question: SessionInputQuestion) -> String {
+    private func questionId(of question: ChatInputQuestion) -> String {
         switch question {
         case .text(let q): return q.id
         case .number(let q), .integer(let q): return q.id
         case .boolean(let q): return q.id
         case .singleSelect(let q): return q.id
         case .multiSelect(let q): return q.id
+        case .unknown(let raw): return raw.stringField("id") ?? ""
         }
     }
 
-    private func isRequired(_ question: SessionInputQuestion) -> Bool {
+    private func isRequired(_ question: ChatInputQuestion) -> Bool {
         switch question {
         case .text(let q): return q.required ?? false
         case .number(let q), .integer(let q): return q.required ?? false
         case .boolean(let q): return q.required ?? false
         case .singleSelect(let q): return q.required ?? false
         case .multiSelect(let q): return q.required ?? false
+        // Unanswerable here, so never let it block submitting the rest.
+        case .unknown: return false
         }
     }
 }
@@ -196,9 +199,9 @@ struct InputRequestSheet: View {
 
 /// Native `Form`-style rendering of a single question as a `Section`.
 private struct QuestionSection: View {
-    let question: SessionInputQuestion
-    let answer: SessionInputAnswer?
-    let onChange: (SessionInputAnswer?) -> Void
+    let question: ChatInputQuestion
+    let answer: ChatInputAnswer?
+    let onChange: (ChatInputAnswer?) -> Void
 
     var body: some View {
         Section {
@@ -220,6 +223,10 @@ private struct QuestionSection: View {
                 SingleSelectQuestionField(question: q, answer: answer, onChange: onChange)
             case .multiSelect(let q):
                 MultiSelectQuestionField(question: q, answer: answer, onChange: onChange)
+            case .unknown:
+                Text("This app can't answer this kind of question yet.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         } header: {
             if let title = title, !title.isEmpty {
@@ -235,6 +242,7 @@ private struct QuestionSection: View {
         case .boolean(let q): return q.title
         case .singleSelect(let q): return q.title
         case .multiSelect(let q): return q.title
+        case .unknown(let raw): return raw.stringField("title")
         }
     }
 
@@ -245,6 +253,7 @@ private struct QuestionSection: View {
         case .boolean(let q): return q.message
         case .singleSelect(let q): return q.message
         case .multiSelect(let q): return q.message
+        case .unknown(let raw): return raw.stringField("message") ?? ""
         }
     }
 }
@@ -252,9 +261,9 @@ private struct QuestionSection: View {
 // MARK: - Field Views
 
 private struct TextQuestionField: View {
-    let question: SessionInputTextQuestion
-    let answer: SessionInputAnswer?
-    let onChange: (SessionInputAnswer?) -> Void
+    let question: ChatInputTextQuestion
+    let answer: ChatInputAnswer?
+    let onChange: (ChatInputAnswer?) -> Void
     @State private var text: String = ""
 
     var body: some View {
@@ -270,18 +279,18 @@ private struct TextQuestionField: View {
                 }
             }
             .onChange(of: text) { _, newValue in
-                let value = SessionInputAnswerValue.text(
-                    SessionInputTextAnswerValue(kind: .text, value: newValue)
+                let value = ChatInputAnswerValue.text(
+                    ChatInputTextAnswerValue(kind: .text, value: newValue)
                 )
-                onChange(.draft(SessionInputAnswered(state: .draft, value: value)))
+                onChange(.draft(ChatInputAnswered(state: .draft, value: value)))
             }
     }
 }
 
 private struct NumberQuestionField: View {
-    let question: SessionInputNumberQuestion
-    let answer: SessionInputAnswer?
-    let onChange: (SessionInputAnswer?) -> Void
+    let question: ChatInputNumberQuestion
+    let answer: ChatInputAnswer?
+    let onChange: (ChatInputAnswer?) -> Void
     @State private var text: String = ""
 
     var body: some View {
@@ -299,10 +308,10 @@ private struct NumberQuestionField: View {
                     onChange(nil)
                     return
                 }
-                let value = SessionInputAnswerValue.number(
-                    SessionInputNumberAnswerValue(kind: .number, value: n)
+                let value = ChatInputAnswerValue.number(
+                    ChatInputNumberAnswerValue(kind: .number, value: n)
                 )
-                onChange(.draft(SessionInputAnswered(state: .draft, value: value)))
+                onChange(.draft(ChatInputAnswered(state: .draft, value: value)))
             }
     }
 
@@ -315,9 +324,9 @@ private struct NumberQuestionField: View {
 }
 
 private struct BooleanQuestionField: View {
-    let question: SessionInputBooleanQuestion
-    let answer: SessionInputAnswer?
-    let onChange: (SessionInputAnswer?) -> Void
+    let question: ChatInputBooleanQuestion
+    let answer: ChatInputAnswer?
+    let onChange: (ChatInputAnswer?) -> Void
 
     private var value: Bool {
         if let a = answer, case .draft(let v) = a, case .boolean(let bv) = v.value {
@@ -333,10 +342,10 @@ private struct BooleanQuestionField: View {
         Toggle(isOn: Binding(
             get: { value },
             set: { newValue in
-                let v = SessionInputAnswerValue.boolean(
-                    SessionInputBooleanAnswerValue(kind: .boolean, value: newValue)
+                let v = ChatInputAnswerValue.boolean(
+                    ChatInputBooleanAnswerValue(kind: .boolean, value: newValue)
                 )
-                onChange(.draft(SessionInputAnswered(state: .draft, value: v)))
+                onChange(.draft(ChatInputAnswered(state: .draft, value: v)))
             }
         )) {
             Text(question.title ?? "Yes")
@@ -345,16 +354,16 @@ private struct BooleanQuestionField: View {
 }
 
 private struct SingleSelectQuestionField: View {
-    let question: SessionInputSingleSelectQuestion
-    let answer: SessionInputAnswer?
-    let onChange: (SessionInputAnswer?) -> Void
+    let question: ChatInputSingleSelectQuestion
+    let answer: ChatInputAnswer?
+    let onChange: (ChatInputAnswer?) -> Void
 
     @State private var freeformText: String = ""
     @FocusState private var freeformFocused: Bool
 
     private var allowsFreeform: Bool { question.allowFreeformInput ?? false }
 
-    private var currentValue: SessionInputSelectedAnswerValue? {
+    private var currentValue: ChatInputSelectedAnswerValue? {
         guard let answer else { return nil }
         switch answer {
         case .draft(let v), .submitted(let v):
@@ -378,10 +387,10 @@ private struct SingleSelectQuestionField: View {
     var body: some View {
         ForEach(question.options, id: \.id) { option in
             Button {
-                let v = SessionInputAnswerValue.selected(
-                    SessionInputSelectedAnswerValue(kind: .selected, value: option.id)
+                let v = ChatInputAnswerValue.selected(
+                    ChatInputSelectedAnswerValue(kind: .selected, value: option.id)
                 )
-                onChange(.draft(SessionInputAnswered(state: .draft, value: v)))
+                onChange(.draft(ChatInputAnswered(state: .draft, value: v)))
                 freeformText = ""
                 freeformFocused = false
             } label: {
@@ -435,14 +444,14 @@ private struct SingleSelectQuestionField: View {
                         onChange(nil)
                     }
                 } else {
-                    let v = SessionInputAnswerValue.selected(
-                        SessionInputSelectedAnswerValue(
+                    let v = ChatInputAnswerValue.selected(
+                        ChatInputSelectedAnswerValue(
                             kind: .selected,
                             value: "",
                             freeformValues: [newValue]
                         )
                     )
-                    onChange(.draft(SessionInputAnswered(state: .draft, value: v)))
+                    onChange(.draft(ChatInputAnswered(state: .draft, value: v)))
                 }
             }
         }
@@ -450,15 +459,15 @@ private struct SingleSelectQuestionField: View {
 }
 
 private struct MultiSelectQuestionField: View {
-    let question: SessionInputMultiSelectQuestion
-    let answer: SessionInputAnswer?
-    let onChange: (SessionInputAnswer?) -> Void
+    let question: ChatInputMultiSelectQuestion
+    let answer: ChatInputAnswer?
+    let onChange: (ChatInputAnswer?) -> Void
 
     @State private var freeformText: String = ""
 
     private var allowsFreeform: Bool { question.allowFreeformInput ?? false }
 
-    private var currentValue: SessionInputSelectedManyAnswerValue? {
+    private var currentValue: ChatInputSelectedManyAnswerValue? {
         guard let answer else { return nil }
         switch answer {
         case .draft(let v), .submitted(let v):
@@ -531,13 +540,13 @@ private struct MultiSelectQuestionField: View {
             onChange(nil)
             return
         }
-        let v = SessionInputAnswerValue.selectedMany(
-            SessionInputSelectedManyAnswerValue(
+        let v = ChatInputAnswerValue.selectedMany(
+            ChatInputSelectedManyAnswerValue(
                 kind: .selectedMany,
                 value: selected,
                 freeformValues: freeform.isEmpty ? nil : freeform
             )
         )
-        onChange(.draft(SessionInputAnswered(state: .draft, value: v)))
+        onChange(.draft(ChatInputAnswered(state: .draft, value: v)))
     }
 }

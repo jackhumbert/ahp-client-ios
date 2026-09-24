@@ -45,6 +45,21 @@ final class AppStore {
     /// the user has actually opened (or just created) have full state here.
     var sessions: [String: SessionState] = [:]
 
+    /// Per-chat state keyed by chat URI.
+    ///
+    /// Since multi-chat (spec 0.9.0) a session no longer carries its
+    /// conversation: turns, the active turn, queued messages and input requests
+    /// live on a separate chat channel, named by `SessionState.defaultChat`.
+    /// Every subscribed session gets its default chat subscribed alongside it;
+    /// see ``syncChatSubscription(forSession:)``.
+    var chats: [String: ChatState] = [:]
+
+    /// Session URI → the chat URI subscribed on its behalf.
+    private var sessionChatURIs: [String: String] = [:]
+
+    /// Chat URIs with a `subscribe` in flight, to avoid duplicate subscribes.
+    private var subscribingChats: Set<String> = []
+
     /// Lightweight summary cache for every session the server knows about,
     /// keyed by session URI. Populated on connect via `listSessions`, and kept
     /// fresh by `root/sessionAdded`, `root/sessionRemoved`, and
@@ -144,6 +159,31 @@ final class AppStore {
         return sessions[uri]
     }
 
+    /// The chat the selected session's conversation lives on.
+    var currentChatURI: String? {
+        guard let uri = selectedSessionURI else { return nil }
+        return sessionChatURIs[uri]
+    }
+
+    /// The selected session's conversation: turns, the active turn, queued and
+    /// steering messages.
+    var currentChat: ChatState? {
+        guard let uri = currentChatURI else { return nil }
+        return chats[uri]
+    }
+
+    /// Questions the agent is waiting on in the current chat, oldest first.
+    ///
+    /// Since 0.9.0 an input request is not a list on the session but a
+    /// response part of the active turn; it is pending until the part carries
+    /// a `response`.
+    var currentInputRequests: [ChatInputRequest] {
+        (currentChat?.activeTurn?.responseParts ?? []).compactMap { part in
+            guard case .inputRequest(let input) = part, input.response == nil else { return nil }
+            return input.request
+        }
+    }
+
     var isCurrentSessionStale: Bool {
         guard let uri = selectedSessionURI else { return false }
         return staleSessionURIs.contains(uri)
@@ -172,7 +212,7 @@ final class AppStore {
             summary.status = state.status
             summary.activity = state.activity
             summary.project = state.project
-            summary.workingDirectory = state.workingDirectory
+            summary.workingDirectories = state.workingDirectories
             summary.annotations = state.annotations
             merged[uri] = summary
         }
@@ -915,9 +955,13 @@ final class AppStore {
             try await connection.createSession(params: CreateSessionParams(
                 channel: uri,
                 provider: provider,
-                model: model.map { ModelSelection(id: $0) },
-                workingDirectory: workingDirectory
+                workingDirectories: workingDirectory.map { [$0] }
             ))
+            // The model is chosen per message now, not per session: remember
+            // it so ``sendMessage(_:attachments:)`` stamps it on each turn.
+            if let model {
+                selectedModelIds[uri] = model
+            }
 
             // Subscribe to the new session
             if let snapshot = try await connection.subscribe(resource: uri) {
@@ -936,6 +980,7 @@ final class AppStore {
         do {
             try await connection.disposeSession(session: uri)
             try await connection.unsubscribe(resource: uri)
+            dropChats(forSession: uri)
             sessions.removeValue(forKey: uri)
             staleSessionURIs.remove(uri)
             syncingSessionURIs.remove(uri)
@@ -972,23 +1017,23 @@ final class AppStore {
 
     // MARK: - Conversation
 
-    /// Send a user message to the current session.
+    /// Send a user message to the current session's chat.
     ///
     /// The dispatch shape depends on whether a turn is already running:
     ///
-    /// - **Idle session** (no `activeTurn`) — dispatch `session/turnStarted`
+    /// - **Idle chat** (no `activeTurn`) — dispatch `chat/turnStarted`
     ///   directly with a fresh `turnId`. This is the canonical "user sent a
     ///   message; server starts processing" path per the actions guide. It also
     ///   means the optimistic UI shows the message as the active turn
     ///   immediately, instead of briefly flashing as "queued" while waiting for
     ///   the server to consume a pending entry — important on slow or flaky
     ///   networks where that round-trip can be noticeable (or stuck).
-    /// - **Turn in progress** — dispatch `session/pendingMessageSet` with
+    /// - **Turn in progress** — dispatch `chat/pendingMessageSet` with
     ///   ``PendingMessageKind/queued``. The message stays in the queue and the
     ///   server auto-starts it after the current turn completes, emitting a
-    ///   `session/turnStarted` with `queuedMessageId` linking back to the entry.
+    ///   `chat/turnStarted` with `queuedMessageId` linking back to the entry.
     func sendMessage(_ text: String, attachments: [MessageAttachment]? = nil) async {
-        guard let uri = selectedSessionURI else { return }
+        guard let uri = selectedSessionURI, let chatURI = currentChatURI else { return }
         let modelSelection = selectedModelIds[uri].map { ModelSelection(id: $0) }
         let message = Message(
             text: text,
@@ -996,20 +1041,21 @@ final class AppStore {
             attachments: attachments,
             model: modelSelection
         )
-        let hasActiveTurn = sessions[uri]?.activeTurn != nil
+        let hasActiveTurn = chats[chatURI]?.activeTurn != nil
 
         let action: StateAction
         if hasActiveTurn {
-            action = .sessionPendingMessageSet(SessionPendingMessageSetAction(
-                type: .sessionPendingMessageSet,
+            action = .chatPendingMessageSet(ChatPendingMessageSetAction(
+                type: .chatPendingMessageSet,
                 kind: .queued,
                 id: UUID().uuidString,
                 message: message
             ))
         } else {
-            action = .sessionTurnStarted(SessionTurnStartedAction(
-                type: .sessionTurnStarted,
+            action = .chatTurnStarted(ChatTurnStartedAction(
+                type: .chatTurnStarted,
                 turnId: UUID().uuidString,
+                startedAt: AHPTimestamp.string(from: currentDateProvider()),
                 message: message
             ))
         }
@@ -1019,30 +1065,22 @@ final class AppStore {
         // entry (turn-in-progress case). The server will echo the action back
         // and, for the queued case, follow up with `pendingMessageRemoved` +
         // `turnStarted` once it consumes the queue.
-        applySessionAction(action, sessionURI: uri)
-
-        // Dispatch to server
-        do {
-            try await connection.dispatchAction(action, channel: uri)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await dispatchChatAction(action, chatURI: chatURI)
     }
 
-    /// Cancel the active turn in the current session.
+    /// Cancel the active turn in the current chat.
     func cancelTurn() async {
-        guard let uri = selectedSessionURI,
-              let turn = sessions[uri]?.activeTurn else { return }
-        let action = StateAction.sessionTurnCancelled(SessionTurnCancelledAction(
-            type: .sessionTurnCancelled,
-            turnId: turn.id
+        guard let chatURI = currentChatURI,
+              let turn = chats[chatURI]?.activeTurn else { return }
+        // `duration` is required on the wire: time since the turn started.
+        let started = AHPTimestamp.date(from: turn.startedAt) ?? currentDateProvider()
+        let duration = max(0, Int(currentDateProvider().timeIntervalSince(started) * 1000))
+        let action = StateAction.chatTurnCancelled(ChatTurnCancelledAction(
+            type: .chatTurnCancelled,
+            turnId: turn.id,
+            duration: duration
         ))
-        applySessionAction(action, sessionURI: uri)
-        do {
-            try await connection.dispatchAction(action, channel: uri)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await dispatchChatAction(action, chatURI: chatURI)
     }
 
     /// Update a mutable session config value for the current session.
@@ -1077,8 +1115,8 @@ final class AppStore {
         editedToolInput: String? = nil,
         selectedOptionId: String? = nil
     ) async {
-        guard let uri = selectedSessionURI else { return }
-        let action = StateAction.sessionToolCallConfirmed(SessionToolCallConfirmedAction(
+        guard let chatURI = currentChatURI else { return }
+        let action = StateAction.chatToolCallConfirmed(ChatToolCallConfirmedAction(
             turnId: turnId,
             toolCallId: toolCallId,
             approved: true,
@@ -1086,12 +1124,7 @@ final class AppStore {
             editedToolInput: editedToolInput,
             selectedOptionId: selectedOptionId
         ))
-        applySessionAction(action, sessionURI: uri)
-        do {
-            try await connection.dispatchAction(action, channel: uri)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await dispatchChatAction(action, chatURI: chatURI)
     }
 
     /// Deny a tool call.
@@ -1101,8 +1134,8 @@ final class AppStore {
         reason: String? = nil,
         selectedOptionId: String? = nil
     ) async {
-        guard let uri = selectedSessionURI else { return }
-        let action = StateAction.sessionToolCallConfirmed(SessionToolCallConfirmedAction(
+        guard let chatURI = currentChatURI else { return }
+        let action = StateAction.chatToolCallConfirmed(ChatToolCallConfirmedAction(
             turnId: turnId,
             toolCallId: toolCallId,
             approved: false,
@@ -1110,66 +1143,56 @@ final class AppStore {
             reasonMessage: reason.map { .string($0) },
             selectedOptionId: selectedOptionId
         ))
-        applySessionAction(action, sessionURI: uri)
-        do {
-            try await connection.dispatchAction(action, channel: uri)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await dispatchChatAction(action, chatURI: chatURI)
     }
 
     /// Approve a tool call result.
     func approveToolCallResult(toolCallId: String, turnId: String) async {
-        guard let uri = selectedSessionURI else { return }
-        let action = StateAction.sessionToolCallResultConfirmed(SessionToolCallResultConfirmedAction(
+        guard let chatURI = currentChatURI else { return }
+        let action = StateAction.chatToolCallResultConfirmed(ChatToolCallResultConfirmedAction(
             turnId: turnId,
             toolCallId: toolCallId,
-            type: .sessionToolCallResultConfirmed,
+            type: .chatToolCallResultConfirmed,
             approved: true
         ))
-        applySessionAction(action, sessionURI: uri)
-        do {
-            try await connection.dispatchAction(action, channel: uri)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await dispatchChatAction(action, chatURI: chatURI)
     }
 
     // MARK: - Input Requests
 
     /// Update a draft or submitted answer for a question on an input request.
-    func setInputAnswer(requestId: String, questionId: String, answer: SessionInputAnswer?) async {
-        guard let uri = selectedSessionURI else { return }
-        let action = StateAction.sessionInputAnswerChanged(SessionInputAnswerChangedAction(
-            type: .sessionInputAnswerChanged,
+    func setInputAnswer(requestId: String, questionId: String, answer: ChatInputAnswer?) async {
+        guard let chatURI = currentChatURI else { return }
+        let action = StateAction.chatInputAnswerChanged(ChatInputAnswerChangedAction(
+            type: .chatInputAnswerChanged,
             requestId: requestId,
             questionId: questionId,
             answer: answer
         ))
-        applySessionAction(action, sessionURI: uri)
-        do {
-            try await connection.dispatchAction(action, channel: uri)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await dispatchChatAction(action, chatURI: chatURI)
     }
 
     /// Complete an input request with the given response.
     func completeInputRequest(
         requestId: String,
-        response: SessionInputResponseKind,
-        answers: [String: SessionInputAnswer]? = nil
+        response: ChatInputResponseKind,
+        answers: [String: ChatInputAnswer]? = nil
     ) async {
-        guard let uri = selectedSessionURI else { return }
-        let action = StateAction.sessionInputCompleted(SessionInputCompletedAction(
-            type: .sessionInputCompleted,
+        guard let chatURI = currentChatURI else { return }
+        let action = StateAction.chatInputCompleted(ChatInputCompletedAction(
+            type: .chatInputCompleted,
             requestId: requestId,
             response: response,
             answers: answers
         ))
-        applySessionAction(action, sessionURI: uri)
+        await dispatchChatAction(action, chatURI: chatURI)
+    }
+
+    /// Apply `action` to the local chat optimistically, then send it.
+    private func dispatchChatAction(_ action: StateAction, chatURI: String) async {
+        applyChatAction(action, chatURI: chatURI)
         do {
-            try await connection.dispatchAction(action, channel: uri)
+            try await connection.dispatchAction(action, channel: chatURI)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1200,13 +1223,24 @@ final class AppStore {
             sessions[snapshot.resource] = state
             staleSessionURIs.remove(snapshot.resource)
             syncingSessionURIs.remove(snapshot.resource)
+            syncChatSubscription(forSession: snapshot.resource)
+        case .chat(let state):
+            chats[snapshot.resource] = state
         case .terminal(let state):
             terminals[snapshot.resource] = state
-        case .changeset:
+        default:
+            // changeset, resource watch, annotations, automations: this app
+            // subscribes to none of them.
             break
         }
     }
 
+    /// Route an incoming action by the channel it was published on.
+    ///
+    /// Routing is on which table the channel was registered in, never on the
+    /// URI's scheme: hosts mint session and chat URIs of their own choosing
+    /// (VS Code uses `<provider>:/<uuid>` for sessions), so a prefix test binds
+    /// nothing and silently freezes state.
     func handleAction(_ envelope: ActionEnvelope) {
         let action = envelope.action
         let channel = envelope.channel
@@ -1216,16 +1250,21 @@ final class AppStore {
             rootState = rootReducer(state: rootState, action: action)
             return
         }
-        if channel.hasPrefix("terminal:/") {
-            if let state = terminals[channel] {
-                terminals[channel] = terminalReducer(state: state, action: action)
-            }
+        if chats[channel] != nil {
+            applyChatAction(action, chatURI: channel)
             return
         }
-        // Anything else is a session channel.
-        staleSessionURIs.remove(channel)
-        syncingSessionURIs.remove(channel)
-        applySessionAction(action, sessionURI: channel)
+        if let state = terminals[channel] {
+            terminals[channel] = terminalReducer(state: state, action: action)
+            return
+        }
+        if sessions[channel] != nil {
+            staleSessionURIs.remove(channel)
+            syncingSessionURIs.remove(channel)
+            applySessionAction(action, sessionURI: channel)
+            return
+        }
+        print("[AHP] WARNING: action on unknown channel \(channel), dropping: \(action)")
     }
 
     private func applySessionAction(_ action: StateAction, sessionURI: String) {
@@ -1235,6 +1274,70 @@ final class AppStore {
         }
         sessionReducer_.reduce(into: &state, action: action)
         sessions[sessionURI] = state
+        // `session/defaultChatChanged` (or a chat being added) can name a
+        // different chat than the one we hold.
+        syncChatSubscription(forSession: sessionURI)
+    }
+
+    private func applyChatAction(_ action: StateAction, chatURI: String) {
+        guard let state = chats[chatURI] else {
+            print("[AHP] WARNING: No chat found for URI \(chatURI), dropping action: \(action)")
+            return
+        }
+        chats[chatURI] = chatReducer(state: state, action: action)
+    }
+
+    /// The chat a session's conversation should be read from: its declared
+    /// default, or failing that its first chat.
+    private func conversationChatURI(forSession uri: String) -> String? {
+        guard let session = sessions[uri] else { return nil }
+        return session.defaultChat ?? session.chats.first?.resource
+    }
+
+    /// Keep exactly one chat subscribed per subscribed session: the one
+    /// ``conversationChatURI(forSession:)`` names. Subscribes it when it first
+    /// appears or changes, and drops the one it replaced.
+    private func syncChatSubscription(forSession sessionURI: String) {
+        let desired = conversationChatURI(forSession: sessionURI)
+        let current = sessionChatURIs[sessionURI]
+        guard desired != current else { return }
+
+        if let current {
+            dropChat(current)
+        }
+        sessionChatURIs[sessionURI] = desired
+        guard let desired, chats[desired] == nil, !subscribingChats.contains(desired) else { return }
+
+        subscribingChats.insert(desired)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.subscribingChats.remove(desired) }
+            do {
+                if let snapshot = try await self.connection.subscribe(resource: desired) {
+                    // The session may have moved on while we waited.
+                    guard self.sessionChatURIs.values.contains(desired) else {
+                        try? await self.connection.unsubscribe(resource: desired)
+                        return
+                    }
+                    self.applySnapshot(snapshot)
+                }
+            } catch {
+                self.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Forget a session's chat, unsubscribing it on the server.
+    private func dropChats(forSession sessionURI: String) {
+        guard let chatURI = sessionChatURIs.removeValue(forKey: sessionURI) else { return }
+        dropChat(chatURI)
+    }
+
+    private func dropChat(_ chatURI: String) {
+        guard chats.removeValue(forKey: chatURI) != nil else { return }
+        Task { @MainActor [weak self] in
+            try? await self?.connection.unsubscribe(resource: chatURI)
+        }
     }
 
     private func handleNotification(_ notification: AHPNotification) {
@@ -1248,6 +1351,7 @@ final class AppStore {
                 await self?.reconcileActiveSessionPrefetch()
             }
         case .sessionRemoved(let note):
+            dropChats(forSession: note.session)
             sessions.removeValue(forKey: note.session)
             staleSessionURIs.remove(note.session)
             syncingSessionURIs.remove(note.session)
@@ -1275,14 +1379,28 @@ final class AppStore {
             // provider URI). Map it onto any sessions that use that agent so
             // the chat view can show an inline sign-in panel instead of the
             // notification surfacing as a blocking error modal.
-            let affected = sessionSummariesCache.values
-                .filter { $0.provider == note.resource }
-                .map { $0.resource }
+            //
+            // Since 0.9.0 the notification names the channel it applies to,
+            // and `resource` is the full protected-resource metadata, which
+            // also feeds the sign-in panel.
+            let resourceId = note.resource.resource
+            let affected: [String]
+            if sessions[note.channel] != nil || sessionSummariesCache[note.channel] != nil {
+                affected = [note.channel]
+            } else {
+                affected = sessionSummariesCache.values
+                    .filter { $0.provider == resourceId }
+                    .map { $0.resource }
+            }
             if affected.isEmpty {
                 // Connection-level requirement with no specific session bound.
-                sessionsRequiringAuth.insert(note.resource)
+                sessionsRequiringAuth.insert(resourceId)
+                authRequiredResources[resourceId] = [note.resource]
             } else {
                 sessionsRequiringAuth.formUnion(affected)
+                for uri in affected {
+                    authRequiredResources[uri] = [note.resource]
+                }
             }
         }
     }
@@ -1304,7 +1422,7 @@ final class AppStore {
         if let v = changes.activity { summary.activity = v }
         if let v = changes.project { summary.project = v }
         if let v = changes.annotations { summary.annotations = v }
-        if let v = changes.workingDirectory { summary.workingDirectory = v }
+        if let v = changes.workingDirectories { summary.workingDirectories = v }
         sessionSummariesCache[uri] = summary
     }
 
@@ -1330,17 +1448,16 @@ final class AppStore {
         sessions[uri] == nil || staleSessionURIs.contains(uri)
     }
 
-    private func startOfCurrentDayTimestamp() -> Int {
-        let startOfDay = Calendar.current.startOfDay(for: currentDateProvider())
-        return Int(startOfDay.timeIntervalSince1970 * 1000)
+    private func startOfCurrentDay() -> Date {
+        Calendar.current.startOfDay(for: currentDateProvider())
     }
 
     private func autoPrefetchCandidateSessionURIs() -> [String] {
-        let startOfDay = startOfCurrentDayTimestamp()
+        let startOfDay = startOfCurrentDay()
         return sessionSummaries
             .filter { summary in
                 summary.status == .inProgress &&
-                    summary.modifiedAt >= startOfDay &&
+                    (AHPTimestamp.date(from: summary.modifiedAt) ?? .distantPast) >= startOfDay &&
                     summary.resource != selectedSessionURI &&
                     !retainedSessionURIs.contains(summary.resource)
             }
@@ -1360,6 +1477,7 @@ final class AppStore {
             autoPrefetchedSessionURIs.remove(uri)
             staleSessionURIs.remove(uri)
             syncingSessionURIs.remove(uri)
+            dropChats(forSession: uri)
             sessions.removeValue(forKey: uri)
         }
 

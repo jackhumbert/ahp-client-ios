@@ -422,6 +422,9 @@ extension MessageAttachment {
         case .simple(let s): return s.label
         case .embeddedResource(let e): return e.label
         case .resource(let r): return r.label
+        case .annotations(let a): return a.label
+        case .chat(let c): return c.label
+        case .unknown(let raw): return raw.stringField("label") ?? "Attachment"
         }
     }
 
@@ -431,6 +434,9 @@ extension MessageAttachment {
         case .simple(let s): return s.displayKind
         case .embeddedResource(let e): return e.displayKind
         case .resource(let r): return r.displayKind
+        case .annotations(let a): return a.displayKind
+        case .chat(let c): return c.displayKind
+        case .unknown(let raw): return raw.stringField("displayKind")
         }
     }
 
@@ -440,6 +446,9 @@ extension MessageAttachment {
         case .simple(let s): return s.modelRepresentation
         case .embeddedResource: return nil
         case .resource(let r): return r.uri
+        case .annotations(let a): return a.resource
+        case .chat(let c): return c.resource
+        case .unknown: return nil
         }
     }
 }

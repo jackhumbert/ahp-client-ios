@@ -26,8 +26,26 @@ Siblings in `~/Github`, all speaking the same spec revision:
 | `agent-host-client-py` | Python client |
 | `agent-host-broker-py` | Python broker |
 
-Current state: **forked, not yet run.** The first milestone is one complete
-turn in the iOS simulator against `python -m agent_host_server`.
+Current state: **ported to spec 0.9.0, builds, not yet run.** The first
+milestone is one complete turn in the iOS simulator against
+`python -m agent_host_server`.
+
+**Deferred upstream reports** live in
+[`docs/deferred-upstream.md`](docs/deferred-upstream.md). Add to it when you find
+one, while the evidence is in front of you.
+
+## Sessions and chats
+
+Since multi-chat, a session holds metadata and a list of chats; the
+conversation — turns, the active turn, queued messages, input requests — lives
+on a **chat** channel. `AppStore` subscribes each subscribed session's default
+chat alongside it (`syncChatSubscription(forSession:)`), keeps chat state in
+`chats`, and sends every conversation action to the chat URI. Views read the
+conversation from `currentChat` and pending questions from
+`currentInputRequests`, never from the session.
+
+Incoming actions are routed by which table their channel is registered in —
+never by URI scheme or prefix, because hosts choose their own URI shapes.
 
 ## Toolchain
 
