@@ -12,6 +12,9 @@ struct ChatView: View {
     @State private var isAtBottom = true
     /// URI of an interactive terminal to navigate to.
     @State private var activeTerminalURI: String?
+    @State private var browsingFiles = false
+    /// A file a link in a reply points at, open in a sheet.
+    @State private var openedFile: FileLink?
     /// Currently presented input request in the modal sheet.
     @State private var presentedInputRequestId: String?
 
@@ -216,7 +219,6 @@ struct ChatView: View {
                         .padding(.horizontal, 14)
                     }
 
-                    SessionAccessoryBar(permissionModel: sessionPermissionPickerModel)
 
                     if showSessionDebugStatus {
                         SessionDebugStatusBar(
@@ -231,7 +233,10 @@ struct ChatView: View {
                     InputBar(
                         text: $inputText,
                         isFocused: $inputFocused,
-                        modelPicker: sessionModelPickerModel.map { SessionModelPickerView(model: $0, inline: true) }
+                        modelPicker: SessionInlineAccessories(
+                            permissionModel: sessionPermissionPickerModel,
+                            modelPickerModel: sessionModelPickerModel
+                        )
                     ) {
                         guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         let message = inputText
@@ -246,6 +251,16 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
+                    if store.currentWorkingDirectory != nil {
+                        Button {
+                            browsingFiles = true
+                        } label: {
+                            Image(systemName: "folder")
+                                .accessibilityLabel("Browse files")
+                        }
+                        .disabled(store.connectionState != .connected)
+                    }
+
                     Button {
                         Task {
                             if let uri = await store.createTerminal() {
@@ -264,6 +279,32 @@ struct ChatView: View {
         }
         .navigationDestination(item: $activeTerminalURI) { uri in
             InteractiveTerminalView(terminalURI: uri)
+        }
+        // Links in replies: web links open in the browser, anything naming a
+        // file resolves against the session's folder and opens here.
+        .environment(\.openURL, OpenURLAction { url in
+            guard let link = FileLink.resolve(url.absoluteString, base: store.currentWorkingDirectory) else {
+                return .systemAction
+            }
+            openedFile = link
+            return .handled
+        })
+        .sheet(isPresented: $browsingFiles) {
+            if let folder = store.currentWorkingDirectory {
+                FolderBrowserView(start: folder)
+                    .environment(store)
+            }
+        }
+        .sheet(item: $openedFile) { link in
+            NavigationStack {
+                FileViewerView(link: link)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { openedFile = nil }
+                        }
+                    }
+            }
+            .environment(store)
         }
         .sheet(item: Binding(
             get: { presentedInputRequest.map { IdentifiedRequest(request: $0) } },
@@ -657,22 +698,27 @@ private struct SessionModelPickerModel {
     }
 }
 
-private struct SessionAccessoryBar: View {
+/// The session's approval mode and model, in the message box's bottom-left
+/// corner across from Send.
+private struct SessionInlineAccessories: View {
     let permissionModel: SessionPermissionPickerModel?
+    let modelPickerModel: SessionModelPickerModel?
 
     var body: some View {
-        if let permissionModel {
-            HStack(spacing: 8) {
-                SessionPermissionPickerView(model: permissionModel)
-                Spacer(minLength: 0)
+        HStack(spacing: 14) {
+            if let permissionModel {
+                SessionPermissionPickerView(model: permissionModel, inline: true)
             }
-            .padding(.horizontal, 12)
+            if let modelPickerModel {
+                SessionModelPickerView(model: modelPickerModel, inline: true)
+            }
         }
     }
 }
 
 private struct SessionPermissionPickerView: View {
     let model: SessionPermissionPickerModel
+    var inline = false
 
     @Environment(AppStore.self) private var store
 
@@ -684,7 +730,8 @@ private struct SessionPermissionPickerView: View {
             SessionAccessoryButtonLabel(
                 systemImage: "lock.shield",
                 text: model.selectedLabel,
-                isMenu: false
+                isMenu: false,
+                inline: inline
             )
             .opacity(0.7)
             .accessibilityElement(children: .ignore)
@@ -716,7 +763,8 @@ private struct SessionPermissionPickerView: View {
         } label: {
             SessionAccessoryButtonLabel(
                 systemImage: "lock.shield",
-                text: model.selectedLabel
+                text: model.selectedLabel,
+                inline: inline
             )
         }
         .accessibilityLabel(model.title)
@@ -749,26 +797,11 @@ private struct SessionModelPickerView: View {
                 }
             }
         } label: {
-            if inline {
-                HStack(spacing: 5) {
-                    Image(systemName: "cpu")
-                        .font(.caption.weight(.semibold))
-                    Text(model.selectedLabel)
-                        .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .foregroundStyle(.secondary)
-                .frame(minHeight: 32)
-                .contentShape(Rectangle())
-            } else {
-                SessionAccessoryButtonLabel(
-                    systemImage: "cpu",
-                    text: model.selectedLabel
-                )
-            }
+            SessionAccessoryButtonLabel(
+                systemImage: "cpu",
+                text: model.selectedLabel,
+                inline: inline
+            )
         }
         .accessibilityLabel(model.title)
         .accessibilityValue(model.selectedLabel)
@@ -781,6 +814,8 @@ private struct SessionAccessoryButtonLabel: View {
     let text: String
     /// False for a value shown but not offered: no chevron promising a menu.
     var isMenu = true
+    /// Drawn inside the message box: no glass capsule of its own.
+    var inline = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -798,9 +833,24 @@ private struct SessionAccessoryButtonLabel: View {
             }
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassInputBackground(cornerRadius: 16)
+        .modifier(AccessoryChrome(inline: inline))
+    }
+}
+
+private struct AccessoryChrome: ViewModifier {
+    let inline: Bool
+
+    func body(content: Content) -> some View {
+        if inline {
+            content
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
+        } else {
+            content
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassInputBackground(cornerRadius: 16)
+        }
     }
 }
 

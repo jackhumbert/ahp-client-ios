@@ -37,6 +37,30 @@ struct MarkdownBlockTests {
     }
 
     @Test func quotesAndRules() {
-        #expect(MarkdownBlock.parse("> said\n> twice\n\n---") == [.quote("said\ntwice"), .rule])
+        #expect(MarkdownBlock.parse("> said\n> twice\n\n---") == [.quote([.paragraph("said twice")]), .rule])
+    }
+
+    @Test func quotesHoldBlocks() {
+        #expect(MarkdownBlock.parse("> ### Status\n>\n> Fine.") == [
+            .quote([.heading(level: 3, text: "Status"), .paragraph("Fine.")]),
+        ])
+    }
+
+    @Test func wrappedParagraphLinesJoinWithSpaces() {
+        #expect(MarkdownBlock.parse("one\ntwo\n\nthree") == [.paragraph("one two"), .paragraph("three")])
+    }
+
+    @Test func indentedLinesContinueAListItem() {
+        #expect(MarkdownBlock.parse("- Connect to hosts\n  with reconnection\n- Next") == [
+            .listItem(ordinal: nil, indent: 0, text: "Connect to hosts with reconnection"),
+            .listItem(ordinal: nil, indent: 0, text: "Next"),
+        ])
+    }
+
+    @Test func referenceLinksResolve() {
+        let source = "See [the spec][ahp] and [ahp][].\n\n[ahp]: https://example.com/ahp"
+        #expect(MarkdownBlock.parse(source) == [
+            .paragraph("See [the spec](https://example.com/ahp) and [ahp](https://example.com/ahp)."),
+        ])
     }
 }

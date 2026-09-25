@@ -294,6 +294,15 @@ actor AHPConnection {
         return result.entries
     }
 
+    /// A file's content from the host (`resourceRead`), a root-channel command
+    /// routed like `resourceList`.
+    func resourceRead(uri: String) async throws -> ResourceReadResult {
+        try await sendRequest(
+            method: "resourceRead",
+            params: ResourceReadParams(channel: "ahp-root://", uri: uri)
+        )
+    }
+
     /// Push a bearer token for a protected resource so subsequent agent
     /// requests can succeed. Wraps the `authenticate` JSON-RPC command.
     func authenticate(channel: String, resource: String, token: String) async throws {

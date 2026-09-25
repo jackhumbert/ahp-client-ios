@@ -10,7 +10,8 @@ INPUT = {"command": "git ls-files | grep -v '^vehicles/.*/attachments/' | head -
 #: Block markdown as Claude writes it, to check the app renders blocks, not hashes.
 REPLY = """### Findings
 
-The survey found **42** tracked files.
+The survey found **42** tracked files; see [the README](README.md) and
+[`ChatView.swift:40`](AHPApp/Views/ChatView.swift:40).
 
 - Docs are thin
   - `README.md` has no setup section

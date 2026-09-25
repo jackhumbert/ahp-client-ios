@@ -80,16 +80,19 @@ enum FolderURI {
 ///
 /// Apple's document picker cannot do this: it only shows the phone's own
 /// locations, and the folders an agent works in exist only on its host.
+///
+/// Without `onChoose` it is a file browser instead: nothing is chosen, and
+/// files open in `FileViewerView`.
 struct FolderBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     /// The folder the stack starts at; "Enclosing folder" moves it up.
     @State private var root: String
-    @State private var path: [String] = []
+    @State private var path = NavigationPath()
     @AppStorage("folderBrowserShowsHidden") private var showsHidden = false
 
-    let onChoose: (String) -> Void
+    let onChoose: ((String) -> Void)?
 
-    init(start: String, onChoose: @escaping (String) -> Void) {
+    init(start: String, onChoose: ((String) -> Void)? = nil) {
         _root = State(initialValue: start)
         self.onChoose = onChoose
     }
@@ -100,6 +103,9 @@ struct FolderBrowserView: View {
                 .navigationDestination(for: String.self) { uri in
                     list(uri, isRoot: false)
                 }
+                .navigationDestination(for: FileLink.self) { link in
+                    FileViewerView(link: link)
+                }
         }
     }
 
@@ -108,9 +114,11 @@ struct FolderBrowserView: View {
             uri: uri,
             isRoot: isRoot,
             showsHidden: $showsHidden,
-            choose: { chosen in
-                onChoose(chosen)
-                dismiss()
+            choose: onChoose.map { onChoose in
+                { chosen in
+                    onChoose(chosen)
+                    dismiss()
+                }
             },
             cancel: { dismiss() },
             goUp: {
@@ -118,7 +126,7 @@ struct FolderBrowserView: View {
                 // starts where it can list; going above re-roots it.
                 if let parent = FolderURI.parent(root) {
                     root = parent
-                    path = []
+                    path = NavigationPath()
                 }
             }
         )
@@ -134,7 +142,8 @@ private struct FolderListView: View {
     let uri: String
     let isRoot: Bool
     @Binding var showsHidden: Bool
-    let choose: (String) -> Void
+    /// Nil when browsing files rather than choosing a folder.
+    let choose: ((String) -> Void)?
     let cancel: () -> Void
     let goUp: () -> Void
 
@@ -177,6 +186,10 @@ private struct FolderListView: View {
                     ForEach(visible, id: \.name) { entry in
                         if entry.isDirectory {
                             folderRow(FolderURI.child(uri, entry.name), title: entry.name, subtitle: nil)
+                        } else if choose == nil {
+                            NavigationLink(value: FileLink(uri: FolderURI.child(uri, entry.name), line: nil)) {
+                                Label(entry.name, systemImage: "doc")
+                            }
                         } else {
                             // Shown for orientation only: a working directory is a folder.
                             Label(entry.name, systemImage: "doc")
@@ -211,7 +224,7 @@ private struct FolderListView: View {
             }
         }
         .swipeActions(edge: .leading) {
-            if folder != FolderURI.brokerRoot {
+            if let choose, folder != FolderURI.brokerRoot {
                 Button("Choose") { choose(folder) }
                     .tint(.accentColor)
             }
@@ -251,16 +264,18 @@ private struct FolderListView: View {
     private var toolbar: some ToolbarContent {
         if isRoot {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel", action: cancel)
+                Button(choose == nil ? "Done" : "Cancel", action: cancel)
             }
         }
-        ToolbarItem(placement: .confirmationAction) {
-            // Enabled even when listing failed: a host may not offer browsing
-            // (the Claude host on Windows doesn't) while the folder itself is
-            // still a fine place to work. The list of machines is a place to
-            // start, not to work.
-            Button("Choose") { choose(uri) }
-                .disabled(isMachineList)
+        if let choose {
+            ToolbarItem(placement: .confirmationAction) {
+                // Enabled even when listing failed: a host may not offer browsing
+                // (the Claude host on Windows doesn't) while the folder itself is
+                // still a fine place to work. The list of machines is a place to
+                // start, not to work.
+                Button("Choose") { choose(uri) }
+                    .disabled(isMachineList)
+            }
         }
         ToolbarItem(placement: .bottomBar) {
             Menu {

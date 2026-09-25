@@ -268,6 +268,23 @@ final class AppStore {
             }
     }
 
+    /// A file on the host, decoded from whichever encoding it came back in.
+    func readFile(_ uri: String) async throws -> HostFile {
+        let result = try await connection.resourceRead(uri: uri)
+        let data: Data
+        switch result.encoding {
+        case .utf8: data = Data(result.data.utf8)
+        case .base64: data = Data(base64Encoded: result.data, options: .ignoreUnknownCharacters) ?? Data()
+        }
+        return HostFile(uri: uri, data: data, contentType: result.contentType)
+    }
+
+    /// The working folder of the open session, for browsing and resolving
+    /// relative links in its replies.
+    var currentWorkingDirectory: String? {
+        currentSession?.workingDirectories?.first
+    }
+
     // MARK: - Pinned folders
 
     /// Folders the user pinned on the selected server, in pin order. Stored
@@ -1869,4 +1886,16 @@ struct FolderEntry: Hashable {
 
     /// Dot-files and dot-folders, hidden unless asked for.
     var isHidden: Bool { name.hasPrefix(".") }
+}
+
+/// A file read from the host.
+struct HostFile {
+    let uri: String
+    let data: Data
+    let contentType: String?
+
+    var text: String? { String(data: data, encoding: .utf8) }
+    var isMarkdown: Bool {
+        contentType == "text/markdown" || ["md", "markdown"].contains(FolderURI.name(uri).split(separator: ".").last?.lowercased() ?? "")
+    }
 }

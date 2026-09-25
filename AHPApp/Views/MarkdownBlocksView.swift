@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// One block of a markdown document.
@@ -13,7 +14,8 @@ enum MarkdownBlock: Equatable {
     case paragraph(String)
     /// `ordinal` is nil for a bullet. `indent` counts nesting levels.
     case listItem(ordinal: String?, indent: Int, text: String)
-    case quote(String)
+    /// A `>` quote holds blocks of its own: headings, lists, paragraphs.
+    case quote([MarkdownBlock])
     case code(language: String?, text: String)
     case table(header: [String], rows: [[String]])
     case rule
@@ -21,14 +23,20 @@ enum MarkdownBlock: Equatable {
     /// Splits `source` into blocks. Tolerant by design: replies stream in, so a
     /// code fence may not be closed yet, and anything unrecognised is a paragraph.
     static func parse(_ source: String) -> [MarkdownBlock] {
+        parseBlocks(resolvingReferenceLinks(source))
+    }
+
+    private static func parseBlocks(_ source: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         var paragraph: [String] = []
         let lines = source.components(separatedBy: "\n")
         var i = 0
 
+        // Lines of one paragraph are one run of text: a newline inside it is
+        // just where the author wrapped, so it reads as a space.
         func flushParagraph() {
             if !paragraph.isEmpty {
-                blocks.append(.paragraph(paragraph.joined(separator: "\n")))
+                blocks.append(.paragraph(joined(paragraph)))
                 paragraph = []
             }
         }
@@ -55,6 +63,16 @@ enum MarkdownBlock: Equatable {
 
             if trimmed.isEmpty {
                 flushParagraph()
+                i += 1
+                continue
+            }
+
+            // A line under a list item that starts no block of its own
+            // continues that item's text.
+            if paragraph.isEmpty, case .listItem(let ordinal, let indent, let text)? = blocks.last,
+               i > 0, !lines[i - 1].trimmingCharacters(in: .whitespaces).isEmpty,
+               !startsBlock(line) {
+                blocks[blocks.count - 1] = .listItem(ordinal: ordinal, indent: indent, text: text + " " + trimmed)
                 i += 1
                 continue
             }
@@ -103,7 +121,7 @@ enum MarkdownBlock: Equatable {
                     quoted.append(q.hasPrefix(" ") ? String(q.dropFirst()) : String(q))
                     i += 1
                 }
-                blocks.append(.quote(quoted.joined(separator: "\n")))
+                blocks.append(.quote(parseBlocks(quoted.joined(separator: "\n"))))
                 continue
             }
 
@@ -112,6 +130,59 @@ enum MarkdownBlock: Equatable {
         }
         flushParagraph()
         return blocks
+    }
+
+    private static func joined(_ lines: [String]) -> String {
+        lines.map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+    }
+
+    /// Whether `line` begins a block rather than continuing text.
+    private static func startsBlock(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return headingLevel(trimmed) != nil || isRule(trimmed) || listItem(line) != nil
+            || trimmed.hasPrefix(">") || trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
+            || trimmed.hasPrefix("|")
+    }
+
+    /// `[text][id]` and `[id][]` → `[text](url)`, using `[id]: url` lines,
+    /// which are removed. Inline-only parsing never sees the definitions.
+    static func resolvingReferenceLinks(_ source: String) -> String {
+        guard source.contains("]:") else { return source }
+        var definitions: [String: String] = [:]
+        var kept: [String] = []
+        for line in source.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("["), let close = trimmed.range(of: "]:"),
+               !trimmed[trimmed.index(after: trimmed.startIndex)..<close.lowerBound].contains("]") {
+                let id = trimmed[trimmed.index(after: trimmed.startIndex)..<close.lowerBound].lowercased()
+                let rest = trimmed[close.upperBound...].trimmingCharacters(in: .whitespaces)
+                if let url = rest.split(separator: " ").first, !id.isEmpty {
+                    definitions[id] = String(url).trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+                    continue
+                }
+            }
+            kept.append(line)
+        }
+        guard !definitions.isEmpty else { return source }
+        var text = kept.joined(separator: "\n")
+        for (id, url) in definitions {
+            // [text][id], matched case-insensitively on the id.
+            let pattern = "\\[([^\\]]+)\\]\\[(" + NSRegularExpression.escapedPattern(for: id) + ")?\\]"
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(text.startIndex..., in: text)
+            var result = ""
+            var last = text.startIndex
+            for match in regex.matches(in: text, range: range) {
+                guard let whole = Range(match.range, in: text), let label = Range(match.range(at: 1), in: text) else { continue }
+                let hasId = match.range(at: 2).location != NSNotFound
+                // `[text][]` only matches when the text itself is the id.
+                if !hasId, text[label].lowercased() != id { continue }
+                result += text[last..<whole.lowerBound] + "[\(text[label])](\(url))"
+                last = whole.upperBound
+            }
+            text = result + text[last...]
+        }
+        return text
     }
 
     private static func headingLevel(_ line: String) -> Int? {
@@ -168,6 +239,10 @@ struct MarkdownBlocksView: View {
         self.blocks = MarkdownBlock.parse(source)
     }
 
+    init(blocks: [MarkdownBlock]) {
+        self.blocks = blocks
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
@@ -196,8 +271,8 @@ struct MarkdownBlocksView: View {
                 Text(Self.inline(text))
             }
             .padding(.leading, CGFloat(indent) * 16)
-        case .quote(let text):
-            Text(Self.inline(text))
+        case .quote(let inner):
+            MarkdownBlocksView(blocks: inner)
                 .foregroundStyle(.secondary)
                 .padding(.leading, 10)
                 .overlay(alignment: .leading) {
@@ -209,25 +284,20 @@ struct MarkdownBlocksView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text)
                     .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(Self.codeColor)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(10)
             }
             .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 8))
         case .table(let header, let rows):
+            // Fixed-width columns: cells wrap inside them and every row is
+            // as tall as its tallest cell. Wide tables scroll sideways.
             ScrollView(.horizontal, showsIndicators: false) {
-                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
-                    GridRow {
-                        ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
-                            Text(Self.inline(cell)).font(.subheadline.weight(.semibold))
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 6) {
+                    tableRow(header, bold: true)
                     Divider()
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        GridRow {
-                            ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                                Text(Self.inline(cell)).font(.subheadline)
-                            }
-                        }
+                        tableRow(row, bold: false)
                     }
                 }
                 .padding(10)
@@ -237,6 +307,19 @@ struct MarkdownBlocksView: View {
             Divider()
         }
     }
+
+    private func tableRow(_ cells: [String], bold: Bool) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                Text(Self.inline(cell))
+                    .font(bold ? .subheadline.weight(.semibold) : .subheadline)
+                    .frame(width: Self.columnWidth, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private static let columnWidth: CGFloat = 180
 
     private static func headingFont(_ level: Int) -> Font {
         switch level {
@@ -248,10 +331,17 @@ struct MarkdownBlocksView: View {
     }
 
     /// Emphasis, code spans and links inside a block; the raw text if that fails.
+    /// Code spans are orange, like code blocks.
     static func inline(_ text: String) -> AttributedString {
-        (try? AttributedString(
+        guard var parsed = try? AttributedString(
             markdown: text,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(text)
+        ) else { return AttributedString(text) }
+        for run in parsed.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            parsed[run.range].foregroundColor = codeColor
+        }
+        return parsed
     }
+
+    static let codeColor = Color.orange
 }
