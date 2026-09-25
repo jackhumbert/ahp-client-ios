@@ -248,10 +248,11 @@ final class AppStore {
     /// no one folder is right for all of them — so these are the best starting
     /// points the app has. They are already machine-qualified URIs
     /// (`file://<node>/…`), which is what browsing through a broker needs.
-    func recentFolders(for provider: String, limit: Int = 8) -> [String] {
+    /// Every agent's when `provider` is nil.
+    func recentFolders(for provider: String?, limit: Int = 8) -> [String] {
         var seen = Set<String>()
         return sessionSummaries
-            .filter { $0.provider == provider }
+            .filter { provider == nil || $0.provider == provider }
             .compactMap { $0.workingDirectories?.first }
             .filter { !$0.isEmpty && seen.insert($0).inserted }
             .prefix(limit)
@@ -780,6 +781,16 @@ final class AppStore {
                 // in place rather than requiring a full clear first.
                 for snapshot in result.snapshots {
                     applySnapshot(snapshot)
+                }
+                // The SDK's connect result rebuilds the root from a few fields
+                // and drops `_meta`, where agent-host-broker lists its
+                // machines. A broker in front of several machines roots its
+                // folders at that list (`ahp-file:///`); only then is there a
+                // list to fetch, so only then is the root asked for again,
+                // which returns it whole.
+                if result.defaultDirectory == FolderURI.brokerRoot,
+                   let root = try? await connection.subscribe(resource: RootResourceURI) {
+                    applySnapshot(root)
                 }
 
                 // Preemptively forward the user's GitHub token to every

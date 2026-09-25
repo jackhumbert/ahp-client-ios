@@ -80,7 +80,7 @@ struct FolderSessionsView: View {
                 summary: summary,
                 status: summary.status,
                 showFolder: false,
-                agentName: store.agentName(for: summary.provider)
+                agentName: store.agentLabel(for: summary)
             )
         }
         .buttonStyle(.plain)

@@ -184,7 +184,16 @@ private struct FolderListView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(visible, id: \.name) { entry in
-                        if entry.isDirectory {
+                        if entry.isDirectory, isMachineList {
+                            // The broker's list of machines: their names, not ids.
+                            let machine = store.machine(forFolder: FolderURI.child(uri, entry.name))
+                            folderRow(
+                                FolderURI.child(uri, entry.name),
+                                title: machine?.label ?? entry.name,
+                                subtitle: machine.map { machineSubtitle($0) },
+                                systemImage: "desktopcomputer"
+                            )
+                        } else if entry.isDirectory {
                             folderRow(FolderURI.child(uri, entry.name), title: entry.name, subtitle: nil)
                         } else if choose == nil {
                             NavigationLink(value: FileLink(uri: FolderURI.child(uri, entry.name), line: nil)) {
@@ -204,23 +213,29 @@ private struct FolderListView: View {
         }
         .searchable(text: $query, prompt: "Filter this folder")
         .refreshable { await load() }
-        .navigationTitle(FolderURI.name(uri))
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .task { await load() }
     }
 
-    private func folderRow(_ folder: String, title: String, subtitle: String?) -> some View {
+    private func folderRow(
+        _ folder: String, title: String, subtitle: String?, systemImage: String? = nil
+    ) -> some View {
         NavigationLink(value: folder) {
-            VStack(alignment: .leading, spacing: 2) {
-                Label(title, systemImage: store.isPinned(folder) ? "folder.fill" : "folder")
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
                 }
+            } icon: {
+                Image(systemName: systemImage ?? (store.isPinned(folder) ? "folder.fill" : "folder"))
             }
         }
         .swipeActions(edge: .leading) {
@@ -235,10 +250,22 @@ private struct FolderListView: View {
         }
     }
 
+    /// The agents a machine runs, by name.
+    private func machineSubtitle(_ machine: Machine) -> String {
+        guard machine.connected else { return "Offline" }
+        return machine.agents.map { store.agentName(for: $0) }.joined(separator: " · ")
+    }
+
     private func pinnedSubtitle(_ folder: String) -> String {
-        [FolderURI.path(folder), FolderURI.machine(folder).map { "on \($0)" }]
+        [FolderURI.path(folder), (store.machine(forFolder: folder)?.label ?? FolderURI.machine(folder)).map { "on \($0)" }]
             .compactMap { $0 }
             .joined(separator: " ")
+    }
+
+    /// A machine's root is titled with its name; everything else by folder.
+    private var title: String {
+        if FolderURI.path(uri) == "/", let machine = store.machine(forFolder: uri) { return machine.label }
+        return FolderURI.name(uri)
     }
 
     @ViewBuilder
@@ -252,7 +279,7 @@ private struct FolderListView: View {
                     .textCase(nil)
                     .lineLimit(2)
                     .truncationMode(.head)
-                if let machine = FolderURI.machine(uri) {
+                if let machine = store.machine(forFolder: uri)?.label ?? FolderURI.machine(uri) {
                     Text("on \(machine)")
                         .textCase(nil)
                 }

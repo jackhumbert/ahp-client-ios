@@ -21,9 +21,12 @@ As inherited from upstream, plus the session settings:
 
 - Connect to one or more AHP hosts over `ws://` or `wss://`, with reconnection
   that replays missed actions when the app returns from the background
-- Several agents on one server (a broker in front of several machines): the
-  session list's card shows each agent by name with its own counts, and tapping
-  one narrows the list to it
+- Several agents on one server: the session list's card shows each agent by
+  name with its own counts, and tapping one narrows the list to it
+- Several machines behind agent-host-broker (which lists them in root `_meta`):
+  the card shows a row per machine with the agents it runs, sessions say where
+  they run ("Claude · Studio"), the folder browser names machines, and a new
+  chat picks its folder first, then offers only that machine's agents
 - Browse sessions, and start new ones with an agent, model and working
   directory — picked from pinned or recent folders, by browsing the host's folders
   (push navigation, a filter, swipe to choose or pin; through a broker too,

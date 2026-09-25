@@ -17,8 +17,9 @@ struct AgentPicker: View {
     /// what the user chose, so switching agents may replace it.
     @State private var directoryWasAutofilled = false
 
+    /// This agent's recent folders; with no agent chosen yet, everyone's.
     private var recentFolders: [String] {
-        selectedProvider.isEmpty ? [] : store.recentFolders(for: selectedProvider)
+        store.recentFolders(for: selectedProvider.isEmpty ? nil : selectedProvider)
     }
 
     /// The host's default folder, unless it is agent-host-broker's list of
@@ -54,6 +55,17 @@ struct AgentPicker: View {
         return dir.isEmpty ? nil : dir
     }
 
+    /// The agents the chosen folder's machine runs; every agent when there is
+    /// no folder yet or the host lists no machines.
+    private var availableAgents: [AgentInfo] {
+        store.agents(forFolder: trimmedDirectory)
+    }
+
+    /// "Studio" for a folder on that machine, from the broker's list.
+    private func machineName(_ uri: String) -> String? {
+        store.machine(forFolder: uri)?.label ?? FolderURI.machine(uri)
+    }
+
     private var selectedAgent: AgentInfo? {
         store.agents.first { $0.provider == selectedProvider }
     }
@@ -64,85 +76,14 @@ struct AgentPicker: View {
 
     var body: some View {
         Form {
-            Section {
-                Picker("Agent", selection: $selectedProvider) {
-                    Text("Select an agent").tag("")
-                    ForEach(store.agents, id: \.provider) { agent in
-                        Text(agent.displayName).tag(agent.provider)
-                    }
-                }
-
-                Picker("Model", selection: $selectedModel) {
-                    Text("Default").tag("")
-                    if let agent = selectedAgent {
-                        ForEach(agent.models, id: \.id) { model in
-                            Text(model.name).tag(model.id)
-                        }
-                    }
-                }
-                .disabled(selectedProvider.isEmpty)
-            }
-
-            Section {
-                // A chosen folder is a URI (`file://<machine>/path`) too long to
-                // read in a one-line field; say it plainly above the field.
-                if let uri = trimmedDirectory, uri.hasPrefix("file:") || uri.hasPrefix("\(FolderURI.brokerScheme):") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label(FolderURI.name(uri), systemImage: "folder.fill")
-                            .font(.body.weight(.semibold))
-                        Text(FolderURI.path(uri))
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.head)
-                        if let machine = FolderURI.machine(uri) {
-                            Text("on \(machine)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-
-                TextField("e.g. /Users/me/project", text: $workingDirectory)
-                    .font(.system(.body, design: .monospaced))
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-                    .onChange(of: workingDirectory) { _, _ in directoryWasAutofilled = false }
-
-                if !recentFolders.isEmpty || !store.pinnedFolders.isEmpty {
-                    Menu {
-                        if !store.pinnedFolders.isEmpty {
-                            Section("Pinned") { folderButtons(store.pinnedFolders) }
-                        }
-                        if !recentFolders.isEmpty {
-                            Section("Recent") { folderButtons(recentFolders) }
-                        }
-                    } label: {
-                        Label(
-                            store.pinnedFolders.isEmpty ? "Recent folders" : "Pinned & recent folders",
-                            systemImage: "clock.arrow.circlepath"
-                        )
-                    }
-                }
-
-                Button {
-                    showingBrowser = true
-                } label: {
-                    Label("Browse…", systemImage: "folder")
-                }
-                .disabled(browseStart == nil)
-            } header: {
-                Text("Working Directory")
-            } footer: {
-                if let dir = usableDefaultDirectory {
-                    // Through a broker the default is a machine's root, whose
-                    // path alone reads "/".
-                    let machine = FolderURI.machine(dir).map { " on \($0)" } ?? ""
-                    Text("Server default: \(FolderURI.path(dir))\(machine)")
-                } else if browseStart == nil, !selectedProvider.isEmpty {
-                    Text("This host doesn't say where its folders are. Type a path; after the first chat, its folder is offered here.")
-                }
+            // Through a broker the folder picks the machine, and the machine
+            // decides which agents can run there: folder first.
+            if store.hasSeveralMachines {
+                folderSection
+                agentSection
+            } else {
+                agentSection
+                folderSection
             }
 
             if let configSchema {
@@ -184,6 +125,16 @@ struct AgentPicker: View {
                     .environment(store)
             }
         }
+        .onChange(of: trimmedDirectory) {
+            // A folder on another machine: keep the agent if that machine runs
+            // it, else take the only one it runs, else ask again.
+            let offered = availableAgents
+            if !selectedProvider.isEmpty, !offered.contains(where: { $0.provider == selectedProvider }) {
+                selectedProvider = offered.count == 1 ? offered[0].provider : ""
+            } else if selectedProvider.isEmpty, offered.count == 1 {
+                selectedProvider = offered[0].provider
+            }
+        }
         .onChange(of: selectedProvider) {
             selectedModel = ""
             if trimmedDirectory == nil || directoryWasAutofilled,
@@ -203,13 +154,98 @@ struct AgentPicker: View {
         }
     }
 
+    private var agentSection: some View {
+        Section {
+            Picker("Agent", selection: $selectedProvider) {
+                Text("Select an agent").tag("")
+                ForEach(availableAgents, id: \.provider) { agent in
+                    Text(agent.displayName).tag(agent.provider)
+                }
+            }
+
+            Picker("Model", selection: $selectedModel) {
+                Text("Default").tag("")
+                if let agent = selectedAgent {
+                    ForEach(agent.models, id: \.id) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+            }
+            .disabled(selectedProvider.isEmpty)
+        }
+    }
+
+    private var folderSection: some View {
+        Section {
+            // A chosen folder is a URI (`file://<machine>/path`) too long to
+            // read in a one-line field; say it plainly above the field.
+            if let uri = trimmedDirectory, uri.hasPrefix("file:") || uri.hasPrefix("\(FolderURI.brokerScheme):") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(FolderURI.name(uri), systemImage: "folder.fill")
+                        .font(.body.weight(.semibold))
+                    Text(FolderURI.path(uri))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.head)
+                    if let machine = machineName(uri) {
+                        Text("on \(machine)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+
+            TextField("e.g. /Users/me/project", text: $workingDirectory)
+                .font(.system(.body, design: .monospaced))
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .onChange(of: workingDirectory) { _, _ in directoryWasAutofilled = false }
+
+            if !recentFolders.isEmpty || !store.pinnedFolders.isEmpty {
+                Menu {
+                    if !store.pinnedFolders.isEmpty {
+                        Section("Pinned") { folderButtons(store.pinnedFolders) }
+                    }
+                    if !recentFolders.isEmpty {
+                        Section("Recent") { folderButtons(recentFolders) }
+                    }
+                } label: {
+                    Label(
+                        store.pinnedFolders.isEmpty ? "Recent folders" : "Pinned & recent folders",
+                        systemImage: "clock.arrow.circlepath"
+                    )
+                }
+            }
+
+            Button {
+                showingBrowser = true
+            } label: {
+                Label("Browse…", systemImage: "folder")
+            }
+            .disabled(browseStart == nil)
+        } header: {
+            Text("Working Directory")
+        } footer: {
+            if let dir = usableDefaultDirectory {
+                // Through a broker the default is a machine's root, whose
+                // path alone reads "/".
+                let machine = machineName(dir).map { " on \($0)" } ?? ""
+                Text("Server default: \(FolderURI.path(dir))\(machine)")
+            } else if browseStart == nil, !selectedProvider.isEmpty {
+                Text("This host doesn't say where its folders are. Type a path; after the first chat, its folder is offered here.")
+            }
+        }
+    }
+
     private func folderButtons(_ folders: [String]) -> some View {
         ForEach(folders, id: \.self) { uri in
             Button {
                 setDirectory(uri, autofilled: false)
             } label: {
                 Text(FolderURI.name(uri))
-                Text([FolderURI.path(uri), FolderURI.machine(uri).map { "on \($0)" }]
+                Text([FolderURI.path(uri), machineName(uri).map { "on \($0)" }]
                     .compactMap { $0 }.joined(separator: " "))
             }
         }

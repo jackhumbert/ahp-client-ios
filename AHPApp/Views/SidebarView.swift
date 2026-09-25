@@ -87,20 +87,27 @@ struct SidebarView: View {
     @State private var editingServer: ServerConfiguration?
     @State private var showingTunnels = false
     @AppStorage("sessionGroupingMode") private var groupingMode: SessionGroupingMode = .byTime
-    /// The agent the list is narrowed to, from tapping its row in the summary
-    /// card; nil shows every agent's sessions.
+    /// What the list is narrowed to, from tapping a row in the summary card:
+    /// an agent's provider id, or `machine:<id>`. Nil shows everything.
     @State private var agentFilter: String?
+
+    private static let machinePrefix = "machine:"
 
     private var filteredSummaries: [SessionSummary] {
         var summaries = store.sessionSummaries
         if let agentFilter {
-            summaries = summaries.filter { $0.provider == agentFilter }
+            if agentFilter.hasPrefix(Self.machinePrefix) {
+                let id = String(agentFilter.dropFirst(Self.machinePrefix.count))
+                summaries = summaries.filter { store.machine(of: $0)?.id == id }
+            } else {
+                summaries = summaries.filter { $0.provider == agentFilter }
+            }
         }
         if searchText.isEmpty { return summaries }
         return summaries.filter {
             $0.title.localizedCaseInsensitiveContains(searchText)
             || $0.provider.localizedCaseInsensitiveContains(searchText)
-            || store.agentName(for: $0.provider).localizedCaseInsensitiveContains(searchText)
+            || store.agentLabel(for: $0).localizedCaseInsensitiveContains(searchText)
             || ($0.workingDirectory ?? "").localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -440,7 +447,7 @@ struct SidebarView: View {
                 status: summary.status,
                 showFolder: showFolder,
                 showModel: showModel,
-                agentName: store.agentName(for: summary.provider)
+                agentName: store.agentLabel(for: summary)
             )
         }
         .buttonStyle(.plain)
@@ -517,18 +524,37 @@ struct SidebarView: View {
 
     private var summaryCard: some View {
         let summaries = store.sessionSummaries
-        let agents = store.agents.map { agent in
-            let own = summaries.filter { $0.provider == agent.provider }
-            return SummaryCardView.AgentRow(
-                provider: agent.provider,
-                name: agent.displayName,
-                active: own.filter { $0.status.isWorking }.count,
-                idle: own.filter { !$0.status.isWorking }.count
-            )
+        let agents: [SummaryCardView.AgentRow]
+        if store.hasSeveralMachines {
+            // A broker in front of several machines: a row per machine, naming
+            // the agents it runs. An agent on two machines is one agent, so
+            // per-agent rows would say nothing about where anything runs.
+            agents = store.machines.map { machine in
+                let own = summaries.filter { store.machine(of: $0)?.id == machine.id }
+                let names = machine.agents.map { store.agentName(for: $0) }
+                return SummaryCardView.AgentRow(
+                    provider: Self.machinePrefix + machine.id,
+                    name: machine.label,
+                    detail: machine.connected ? names.joined(separator: " · ") : "Offline",
+                    active: own.filter { $0.status.isWorking }.count,
+                    idle: own.filter { !$0.status.isWorking }.count
+                )
+            }
+        } else {
+            agents = store.agents.map { agent in
+                let own = summaries.filter { $0.provider == agent.provider }
+                return SummaryCardView.AgentRow(
+                    provider: agent.provider,
+                    name: agent.displayName,
+                    detail: nil,
+                    active: own.filter { $0.status.isWorking }.count,
+                    idle: own.filter { !$0.status.isWorking }.count
+                )
+            }
         }
         return SummaryCardView(
             // One agent: it is what this server is. Several (a broker in front
-            // of several machines): the server is, and each agent gets a row.
+            // of several machines): the server is, and each gets a row.
             title: agents.count == 1 ? agents[0].name : (store.selectedServer?.name ?? "Agents"),
             agents: agents,
             selectedAgent: agentFilter,
@@ -574,6 +600,8 @@ struct SummaryCardView: View, Equatable {
     struct AgentRow: Equatable {
         let provider: String
         let name: String
+        /// A second line: the agents a machine runs, or "Offline".
+        let detail: String?
         let active: Int
         let idle: Int
     }
@@ -659,9 +687,17 @@ struct SummaryCardView: View, Equatable {
                     onSelectAgent(agent.provider)
                 } label: {
                     HStack(spacing: 8) {
-                        Text(agent.name)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(agent.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            if let detail = agent.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
                         Spacer(minLength: 8)
                         counts(active: agent.active, idle: agent.idle)
                         Image(systemName: isSelected ? "line.3.horizontal.decrease.circle.fill" : "chevron.right")
@@ -678,7 +714,7 @@ struct SummaryCardView: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
-                .accessibilityHint(isSelected ? "Shows every agent's sessions" : "Shows only this agent's sessions")
+                .accessibilityHint(isSelected ? "Shows every session" : "Shows only these sessions")
             }
         }
     }
