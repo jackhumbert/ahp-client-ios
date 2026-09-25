@@ -13,6 +13,13 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 serverListSection
+                Section("Chat") {
+                    NavigationLink {
+                        TurnDetailsSettings()
+                    } label: {
+                        Label("Reply Details", systemImage: "text.bubble")
+                    }
+                }
                 tunnelSection
                 debugSection
             }

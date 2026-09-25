@@ -34,6 +34,9 @@ As inherited from upstream, plus the session settings:
   appears in the New Chat sheet and is sent with `createSession`. The chat
   screen shows the approval mode it was created with; a host that allows
   changing it mid-session gets a picker instead
+- Choose what shows under each reply (Settings → Reply Details): time
+  received, duration, model, tool calls, input/output/cached tokens, in any
+  order — time received by default
 - Browse the session's files and open them — markdown rendered, code with line
   numbers, images — from the chat's folder button; links in replies to files
   (`[a](src/a.swift:42)`, relative or absolute) open the file at that line

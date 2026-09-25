@@ -907,10 +907,8 @@ struct TurnView: View {
                     .background(Color(.systemGray5), in: Capsule())
             }
 
-            // Usage info
-            if let usage = turn.usage {
-                UsageBadge(usage: usage)
-            }
+            // The details the user chose (time, tokens, …)
+            TurnDetailsLine(facts: TurnFacts(turn))
         }
     }
 }
@@ -940,9 +938,7 @@ struct ActiveTurnView: View {
             .padding(.vertical, 6)
             .background(Color(.systemGray6), in: Capsule())
 
-            if let usage = turn.usage {
-                UsageBadge(usage: usage)
-            }
+            TurnDetailsLine(facts: TurnFacts(turn))
         }
     }
 }
@@ -972,26 +968,6 @@ struct PendingMessageView: View {
             .foregroundStyle(.secondary)
             .padding(.trailing, 4)
         }
-    }
-}
-
-// MARK: - UsageBadge
-
-struct UsageBadge: View {
-    let usage: UsageInfo
-    
-    var body: some View {
-        HStack(spacing: 8) {
-            if let input = usage.inputTokens {
-                Label("\(input) in", systemImage: "arrow.down.circle")
-                    .font(.caption2)
-            }
-            if let output = usage.outputTokens {
-                Label("\(output) out", systemImage: "arrow.up.circle")
-                    .font(.caption2)
-            }
-        }
-        .foregroundStyle(.tertiary)
     }
 }
 
