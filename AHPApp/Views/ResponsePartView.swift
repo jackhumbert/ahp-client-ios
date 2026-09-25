@@ -121,22 +121,51 @@ struct ReasoningPartView: View {
     let part: ReasoningResponsePart
     @State private var isExpanded = false
 
+    /// Drawn like a compact tool row - icon on the reply text's left edge,
+    /// the same neutral grey card - so thinking reads as part of the agent's
+    /// work rather than a purple banner.
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            Text(part.content)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Label("Thinking", systemImage: "brain")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.purple)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.snappy) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "brain")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    Text("Thinking")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.leading, 4)
+                .padding(.trailing, 10)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+
+            if isExpanded {
+                Text(part.content)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Under the label, and the same space below as above.
+                    .padding(.leading, 30)
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 10)
+            }
         }
-        .padding(10)
         .background(
-            Color.purple.opacity(0.08),
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isExpanded ? Color(.secondarySystemBackground) : .clear)
         )
     }
 }

@@ -78,7 +78,7 @@ struct FolderSessionsView: View {
         } label: {
             SessionRow(
                 summary: summary,
-                isActive: summary.status == .inProgress,
+                status: summary.status,
                 showFolder: false,
                 agentName: store.agentName(for: summary.provider)
             )

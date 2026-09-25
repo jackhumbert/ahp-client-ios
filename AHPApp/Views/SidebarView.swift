@@ -147,11 +147,11 @@ struct SidebarView: View {
     }
 
     private var activeSessions: Int {
-        store.sessionSummaries.filter { $0.status == .inProgress }.count
+        store.sessionSummaries.filter { $0.status.isWorking }.count
     }
 
     private var idleSessions: Int {
-        store.sessionSummaries.filter { $0.status != .inProgress }.count
+        store.sessionSummaries.filter { !$0.status.isWorking }.count
     }
 
     var body: some View {
@@ -437,7 +437,7 @@ struct SidebarView: View {
         } label: {
             SessionRow(
                 summary: summary,
-                isActive: summary.status == .inProgress,
+                status: summary.status,
                 showFolder: showFolder,
                 showModel: showModel,
                 agentName: store.agentName(for: summary.provider)
@@ -522,8 +522,8 @@ struct SidebarView: View {
             return SummaryCardView.AgentRow(
                 provider: agent.provider,
                 name: agent.displayName,
-                active: own.filter { $0.status == .inProgress }.count,
-                idle: own.filter { $0.status != .inProgress }.count
+                active: own.filter { $0.status.isWorking }.count,
+                idle: own.filter { !$0.status.isWorking }.count
             )
         }
         return SummaryCardView(
@@ -729,9 +729,49 @@ struct SessionCardStyle: ViewModifier {
 
 // MARK: - SessionRow
 
+extension SessionStatus {
+    /// A turn is running. `status` is a bit set - working is often combined
+    /// with "read" (8 | 32) - so this tests the bit rather than comparing.
+    var isWorking: Bool { contains(.inProgress) }
+    /// Running, but stopped on the user (an approval, a question).
+    var needsInput: Bool { contains(.inputNeeded) }
+}
+
+/// The dot at the start of a session row: grey at rest, pulsing green while
+/// the agent works, orange while it waits on you.
+struct SessionStatusDot: View {
+    let status: SessionStatus
+    @State private var pulse = false
+
+    private var color: Color {
+        if status.needsInput { return .orange }
+        if status.isWorking { return healthyGreen }
+        return Color(.systemGray4)
+    }
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 8, height: 8)
+            .background {
+                if status.isWorking && !status.needsInput {
+                    Circle()
+                        .fill(color.opacity(0.35))
+                        .frame(width: 8, height: 8)
+                        .scaleEffect(pulse ? 2.4 : 1)
+                        .opacity(pulse ? 0 : 1)
+                        .animation(.easeOut(duration: 1.4).repeatForever(autoreverses: false), value: pulse)
+                        .onAppear { pulse = true }
+                        .onDisappear { pulse = false }
+                }
+            }
+            .accessibilityLabel(status.needsInput ? "Waiting for you" : status.isWorking ? "Working" : "Idle")
+    }
+}
+
 struct SessionRow: View {
     let summary: SessionSummary
-    var isActive: Bool = false
+    var status: SessionStatus = .idle
     var showFolder: Bool = true
     var showModel: Bool = true
     /// The agent's display name; the raw provider id when not given.
@@ -739,9 +779,7 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Circle()
-                .fill(isActive ? healthyGreen : Color(.systemGray4))
-                .frame(width: 8, height: 8)
+            SessionStatusDot(status: status)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(summary.title.isEmpty ? "New Chat" : summary.title)

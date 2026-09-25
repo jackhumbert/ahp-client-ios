@@ -34,6 +34,10 @@ class S:
     def __init__(self, ctx): self.n = 0
     async def send_user_message(self, message: UserMessage, sink: TurnSink) -> None:
         self.n += 1
+        await sink.reasoning_delta("The user wants a survey. I'll list the tracked files, read the README, then look for TODOs.")
+        if "slow" in message.text:
+            # Stays busy, so the session list shows it working.
+            await asyncio.sleep(25)
         # Three calls in a row, to show how runs of calls are displayed.
         for k, (tool, display, args) in enumerate([
             ("Bash", "Run command", INPUT),

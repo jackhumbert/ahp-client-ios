@@ -212,7 +212,10 @@ final class AppStore {
             guard var summary = merged[uri] else { continue }
             summary.provider = state.provider
             summary.title = state.title
-            summary.status = state.status
+            // Not `state.status`: hosts aggregate a session's status across
+            // its chats into the catalog summary (agent-host-server does), and
+            // the session channel's own field can stay Idle while a chat works.
+            // Overlaying it greyed out the working dot on every open session.
             summary.activity = state.activity
             summary.project = state.project
             summary.workingDirectories = state.workingDirectories
@@ -1618,7 +1621,7 @@ final class AppStore {
         let startOfDay = startOfCurrentDay()
         return sessionSummaries
             .filter { summary in
-                summary.status == .inProgress &&
+                summary.status.isWorking &&
                     (AHPTimestamp.date(from: summary.modifiedAt) ?? .distantPast) >= startOfDay &&
                     summary.resource != selectedSessionURI &&
                     !retainedSessionURIs.contains(summary.resource)
