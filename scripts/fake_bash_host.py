@@ -35,6 +35,17 @@ class S:
     async def send_user_message(self, message: UserMessage, sink: TurnSink) -> None:
         self.n += 1
         await sink.reasoning_delta("The user wants a survey. I'll list the tracked files, read the README, then look for TODOs.")
+        if "tools" in message.text:
+            # A long run of calls with no text between them, spaced out, to
+            # check the app keeps up across backgrounding mid-turn.
+            steps = 25 if "long" in message.text else 8
+            for k in range(steps):
+                cid = f"call-{self.n}-t{k}"
+                await sink.tool_call_started(cid, "Bash", json.dumps({"command": f"step {k + 1}"}), display_name="Run command")
+                await asyncio.sleep(4)
+                await sink.tool_call_completed(cid, [{"type": "text", "text": "ok"}], success=True, past_tense_message=f"Ran step {k + 1}")
+            await sink.text_delta(f"All {steps} steps ran.")
+            return
         if "slow" in message.text:
             # Stays busy, so the session list shows it working.
             await asyncio.sleep(25)

@@ -60,6 +60,11 @@ final class AppStore {
     /// Chat URIs with a `subscribe` in flight, to avoid duplicate subscribes.
     private var subscribingChats: Set<String> = []
 
+    /// Chats still shown from a previous connection but not subscribed on
+    /// this one. A full connect starts over with only the root channel, so
+    /// until each is subscribed again nothing new arrives on it.
+    private var staleChatURIs: Set<String> = []
+
     /// Lightweight summary cache for every session the server knows about,
     /// keyed by session URI. Populated on connect via `listSessions`, and kept
     /// fresh by `root/sessionAdded`, `root/sessionRemoved`, and
@@ -807,6 +812,7 @@ final class AppStore {
                 // full session state from a prior connection must be revalidated
                 // with a fresh subscribe before we treat it as current again.
                 staleSessionURIs.formUnion(sessions.keys)
+                staleChatURIs.formUnion(chats.keys)
 
                 // If the selected session was pruned, fall back gracefully.
                 if let selected = selectedSessionURI, sessions[selected] == nil {
@@ -974,6 +980,7 @@ final class AppStore {
     /// - For `.snapshot`: each snapshot replaces the corresponding resource's state wholesale.
     func applyReconnectResult(_ result: ReconnectResult) {
         staleSessionURIs.removeAll()
+        staleChatURIs.removeAll()
         switch result {
         case .replay(let r):
             for envelope in r.actions {
@@ -1391,6 +1398,7 @@ final class AppStore {
             syncChatSubscription(forSession: snapshot.resource)
         case .chat(let state):
             chats[snapshot.resource] = state
+            staleChatURIs.remove(snapshot.resource)
         case .terminal(let state):
             terminals[snapshot.resource] = state
         default:
@@ -1465,13 +1473,14 @@ final class AppStore {
     private func syncChatSubscription(forSession sessionURI: String) {
         let desired = conversationChatURI(forSession: sessionURI)
         let current = sessionChatURIs[sessionURI]
-        guard desired != current else { return }
+        let resubscribe = desired.map(staleChatURIs.contains) ?? false
+        guard desired != current || resubscribe else { return }
 
-        if let current {
+        if let current, current != desired {
             dropChat(current)
         }
         sessionChatURIs[sessionURI] = desired
-        guard let desired, chats[desired] == nil, !subscribingChats.contains(desired) else { return }
+        guard let desired, chats[desired] == nil || resubscribe, !subscribingChats.contains(desired) else { return }
 
         subscribingChats.insert(desired)
         Task { @MainActor [weak self] in
@@ -1499,6 +1508,7 @@ final class AppStore {
     }
 
     private func dropChat(_ chatURI: String) {
+        staleChatURIs.remove(chatURI)
         guard chats.removeValue(forKey: chatURI) != nil else { return }
         Task { @MainActor [weak self] in
             try? await self?.connection.unsubscribe(resource: chatURI)
