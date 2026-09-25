@@ -1,3 +1,4 @@
+import UIKit
 import Foundation
 import SwiftUI
 
@@ -257,7 +258,7 @@ struct MarkdownBlocksView: View {
     private func view(for block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let text):
-            Text(Self.inline(text))
+            Text(Self.inline(text, style: Self.headingStyle(level)))
                 .font(Self.headingFont(level))
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
@@ -311,7 +312,7 @@ struct MarkdownBlocksView: View {
     private func tableRow(_ cells: [String], bold: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
-                Text(Self.inline(cell))
+                Text(Self.inline(cell, style: .subheadline))
                     .font(bold ? .subheadline.weight(.semibold) : .subheadline)
                     .frame(width: Self.columnWidth, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -331,16 +332,36 @@ struct MarkdownBlocksView: View {
     }
 
     /// Emphasis, code spans and links inside a block; the raw text if that fails.
-    /// Code spans are orange, like code blocks.
-    static func inline(_ text: String) -> AttributedString {
+    ///
+    /// Code spans are orange, like code blocks, and a size smaller than the
+    /// text around them: monospaced letters are wider, so at the same point
+    /// size they read as bigger. `style` is the surrounding text's style.
+    static func inline(_ text: String, style: UIFont.TextStyle = .body) -> AttributedString {
         guard var parsed = try? AttributedString(
             markdown: text,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         ) else { return AttributedString(text) }
+        let codeFont = Font.system(
+            size: UIFont.preferredFont(forTextStyle: style).pointSize * inlineCodeScale,
+            design: .monospaced
+        )
         for run in parsed.runs where run.inlinePresentationIntent?.contains(.code) == true {
             parsed[run.range].foregroundColor = codeColor
+            parsed[run.range].font = codeFont
         }
         return parsed
+    }
+
+    /// Inline code relative to its surrounding text: 17 pt body → 15 pt.
+    static let inlineCodeScale: CGFloat = 0.88
+
+    private static func headingStyle(_ level: Int) -> UIFont.TextStyle {
+        switch level {
+        case 1: .title2
+        case 2: .title3
+        case 3: .headline
+        default: .subheadline
+        }
     }
 
     static let codeColor = Color.orange
