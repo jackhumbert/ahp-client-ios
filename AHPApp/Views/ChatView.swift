@@ -246,34 +246,40 @@ struct ChatView: View {
                 }
             }
         }
-        .navigationTitle(store.currentSession?.title.isEmpty == false ? store.currentSession!.title : "New Chat")
+        .navigationTitle(chatTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // A smaller title than the navigation bar's own: chat titles are
+            // the first message, and long.
+            ToolbarItem(placement: .principal) {
+                Text(chatTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityAddTraits(.isHeader)
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 12) {
+                Menu {
                     if store.currentWorkingDirectory != nil {
-                        Button {
+                        Button("Browse Files", systemImage: "folder") {
                             browsingFiles = true
-                        } label: {
-                            Image(systemName: "folder")
-                                .accessibilityLabel("Browse files")
                         }
                         .disabled(store.connectionState != .connected)
                     }
-
-                    Button {
+                    Button("New Terminal", systemImage: "terminal") {
                         Task {
                             if let uri = await store.createTerminal() {
                                 activeTerminalURI = uri
                             }
                         }
-                    } label: {
-                        Image(systemName: "terminal")
-                            .accessibilityLabel("New terminal")
                     }
                     .disabled(store.connectionState != .connected)
-
-                    ReconnectButton()
+                    Button("Reconnect", systemImage: "arrow.trianglehead.2.clockwise") {
+                        Task { await store.reconnect() }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .accessibilityLabel("Chat actions")
                 }
             }
         }
@@ -320,6 +326,10 @@ struct ChatView: View {
                 presentedInputRequestId = nil
             }
         }
+    }
+
+    private var chatTitle: String {
+        store.currentSession?.title.isEmpty == false ? store.currentSession!.title : "New Chat"
     }
 
     /// The full request currently presented in the modal sheet, if any.
@@ -1006,34 +1016,9 @@ private struct ReconnectProgressBar: View {
     }
 }
 
-// MARK: - ReconnectButton
 
 /// A nav-bar button that forces a reconnect, useful for testing the reconnect flow
 /// without having to lock the screen or kill the network.
-struct ReconnectButton: View {
-    @Environment(AppStore.self) private var store
-    @State private var isReconnecting = false
-
-    var body: some View {
-        Button {
-            guard !isReconnecting else { return }
-            isReconnecting = true
-            Task {
-                await store.reconnect()
-                isReconnecting = false
-            }
-        } label: {
-            if isReconnecting {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Image(systemName: "arrow.trianglehead.2.clockwise")
-                    .accessibilityLabel("Force reconnect")
-            }
-        }
-        .disabled(isReconnecting)
-    }
-}
 
 // MARK: - AuthRequiredPanel
 
