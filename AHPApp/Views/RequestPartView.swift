@@ -56,8 +56,12 @@ struct UserBubble: View {
         Text(parsed.displayText)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            // A system colour defined for light and dark (light grey on
+            // white, dark grey on black), not a tint of the accent: a
+            // translucent blue turned murky navy in dark mode, and blue is
+            // what the replies' links and buttons use.
             .background(
-                Color.accentColor.opacity(0.15),
+                Color(.secondarySystemBackground),
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
     }
