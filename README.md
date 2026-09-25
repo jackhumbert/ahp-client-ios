@@ -37,6 +37,10 @@ As inherited from upstream, plus the session settings:
 - Choose what shows under each reply (Settings → Reply Details): time
   received, duration, model, tool calls, input/output/cached tokens, in any
   order — time received by default
+- Send while the agent is working: **Next** (the default tap) joins the turn
+  in flight, **Later** runs after it, **Now** stops it and sends yours
+  (long-press Send). Waiting messages can be cancelled; a message that joined
+  a turn is shown where it joined
 - Tool calls as cards, compact one-liners, or collapsed runs ("5 tool calls ✓")
   that expand (Settings → Tool Calls); a call waiting on you is always a card
 - Browse the session's files and open them — markdown rendered, code with line

@@ -61,7 +61,27 @@ struct SystemNotificationPartView: View {
         }
     }
 
+    /// A message the user steered into the turn (`_meta.steering`, set by
+    /// agent-host-server): drawn as theirs, where it joined.
+    private var isSteering: Bool {
+        (part.meta?["steering"]?.value as? Bool) == true
+    }
+
     var body: some View {
+        if isSteering {
+            VStack(alignment: .trailing, spacing: 4) {
+                UserBubble(text: text, attachments: nil)
+                Label("Joined this turn", systemImage: "arrow.turn.down.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 4)
+            }
+        } else {
+            notice
+        }
+    }
+
+    private var notice: some View {
         Label {
             Text(text)
                 .font(.footnote)

@@ -86,8 +86,9 @@ struct ChatView: View {
                             if let steering = chat.steeringMessage {
                                 PendingMessageView(
                                     message: steering,
-                                    caption: "Steering",
-                                    captionIcon: "arrow.turn.down.right"
+                                    caption: "Next — joins this turn",
+                                    captionIcon: "arrow.turn.down.right",
+                                    onRemove: { Task { await store.removePendingMessage(kind: .steering, id: steering.id) } }
                                 )
                                 .id("steering-\(steering.id)")
                             }
@@ -99,8 +100,9 @@ struct ChatView: View {
                                 ForEach(queued, id: \.id) { msg in
                                     PendingMessageView(
                                         message: msg,
-                                        caption: "Queued",
-                                        captionIcon: "clock"
+                                        caption: "Later — after this turn",
+                                        captionIcon: "clock",
+                                        onRemove: { Task { await store.removePendingMessage(kind: .queued, id: msg.id) } }
                                     )
                                     .id("queued-\(msg.id)")
                                 }
@@ -237,11 +239,11 @@ struct ChatView: View {
                             permissionModel: sessionPermissionPickerModel,
                             modelPickerModel: sessionModelPickerModel
                         )
-                    ) {
+                    ) { delivery in
                         guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         let message = inputText
                         inputText = ""
-                        Task { await store.sendMessage(message) }
+                        Task { await store.sendMessage(message, delivery: delivery) }
                     }
                 }
             }
@@ -516,7 +518,7 @@ private struct SessionDebugStatusBar: View {
 
 extension InputBar where ModelPicker == EmptyView {
     init(text: Binding<String>, isFocused: FocusState<Bool>.Binding, onSubmit: @escaping () -> Void) {
-        self.init(text: text, isFocused: isFocused, modelPicker: nil, onSubmit: onSubmit)
+        self.init(text: text, isFocused: isFocused, modelPicker: nil) { _ in onSubmit() }
     }
 }
 
@@ -525,7 +527,8 @@ struct InputBar<ModelPicker: View>: View {
     var isFocused: FocusState<Bool>.Binding
     /// Sits in the box's bottom-left corner, across from Send.
     var modelPicker: ModelPicker?
-    let onSubmit: () -> Void
+    /// How to deliver it only matters while a turn is running.
+    let onSubmit: (AppStore.Delivery) -> Void
 
     @Environment(AppStore.self) private var store
 
@@ -559,31 +562,49 @@ struct InputBar<ModelPicker: View>: View {
                 }
                 Spacer(minLength: 0)
 
-                // Send / Stop button
-                Button {
-                    if isStreaming {
-                        Task { await store.cancelTurn() }
-                    } else {
-                        isFocused.wrappedValue = false
-                        onSubmit()
+                if isStreaming {
+                    // While the agent works: Stop, and — once there is
+                    // something typed — Send, which steers by default (Next)
+                    // and offers Now / Later on a long press.
+                    if canSend {
+                        Menu {
+                            ForEach(AppStore.Delivery.allCases) { delivery in
+                                Button {
+                                    submit(delivery)
+                                } label: {
+                                    Label(delivery.title, systemImage: delivery.systemImage)
+                                    Text(delivery.detail)
+                                }
+                            }
+                        } label: {
+                            circle(systemImage: "arrow.up", fill: .black, foreground: .white)
+                        } primaryAction: {
+                            submit(.next)
+                        }
+                        .accessibilityLabel("Send")
+                        .accessibilityHint("Joins the current turn. Hold for Now or Later.")
                     }
-                } label: {
-                    Image(systemName: isStreaming ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(isStreaming ? Color.primary : Color.white)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            Circle()
-                                .fill(isStreaming ? Color(.systemGray5) : (canSend ? Color.black : Color(.systemGray3)))
+                    Button {
+                        Task { await store.cancelTurn() }
+                    } label: {
+                        circle(systemImage: "stop.fill", fill: Color(.systemGray5), foreground: .primary, ring: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Stop turn")
+                } else {
+                    Button {
+                        submit(.next)
+                    } label: {
+                        circle(
+                            systemImage: "arrow.up",
+                            fill: canSend ? .black : Color(.systemGray3),
+                            foreground: .white
                         )
-                        .overlay(
-                            Circle()
-                                .stroke(Color(.systemGray3), lineWidth: isStreaming ? 1 : 0)
-                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .accessibilityLabel("Send message")
                 }
-                .buttonStyle(.plain)
-                .disabled(!isStreaming && !canSend)
-                .accessibilityLabel(isStreaming ? "Stop turn" : "Send message")
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 10)
@@ -591,6 +612,46 @@ struct InputBar<ModelPicker: View>: View {
         .glassInputBackground(cornerRadius: containerRadius)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
+    }
+
+    private func submit(_ delivery: AppStore.Delivery) {
+        isFocused.wrappedValue = false
+        onSubmit(delivery)
+    }
+
+    private func circle(systemImage: String, fill: Color, foreground: Color, ring: Bool = false) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(foreground)
+            .frame(width: 32, height: 32)
+            .background(Circle().fill(fill))
+            .overlay(Circle().stroke(Color(.systemGray3), lineWidth: ring ? 1 : 0))
+    }
+}
+
+extension AppStore.Delivery {
+    var title: String {
+        switch self {
+        case .now: "Now"
+        case .next: "Next"
+        case .later: "Later"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .now: "Stop and send this instead"
+        case .next: "Join the current turn"
+        case .later: "Send when this turn ends"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .now: "bolt"
+        case .next: "arrow.turn.down.right"
+        case .later: "clock"
+        }
     }
 }
 
@@ -949,6 +1010,8 @@ struct PendingMessageView: View {
     let message: PendingMessage
     let caption: String
     let captionIcon: String
+    /// Takes the message back; nil when it can't be (already sent).
+    var onRemove: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -960,6 +1023,11 @@ struct PendingMessageView: View {
                     .font(.caption2)
                 Text(caption)
                     .font(.caption2)
+                if let onRemove {
+                    Button("Cancel", action: onRemove)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.leading, 6)
+                }
             }
             .foregroundStyle(.secondary)
             .padding(.trailing, 4)

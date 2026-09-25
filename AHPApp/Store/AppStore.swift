@@ -1157,7 +1157,24 @@ final class AppStore {
     ///   ``PendingMessageKind/queued``. The message stays in the queue and the
     ///   server auto-starts it after the current turn completes, emitting a
     ///   `chat/turnStarted` with `queuedMessageId` linking back to the entry.
-    func sendMessage(_ text: String, attachments: [MessageAttachment]? = nil) async {
+    /// When a message sent during a turn reaches the agent — Claude Code's own
+    /// queue priorities.
+    enum Delivery: String, CaseIterable, Identifiable {
+        /// Stop the turn and send this instead.
+        case now
+        /// Join the turn in flight at its next tool call (steering).
+        case next
+        /// Run as its own turn once this one finishes (queued).
+        case later
+
+        var id: String { rawValue }
+    }
+
+    func sendMessage(
+        _ text: String,
+        attachments: [MessageAttachment]? = nil,
+        delivery: Delivery = .next
+    ) async {
         guard let uri = selectedSessionURI, let chatURI = currentChatURI else { return }
         let modelSelection = selectedModelIds[uri].map { ModelSelection(id: $0) }
         let message = Message(
@@ -1170,12 +1187,19 @@ final class AppStore {
 
         let action: StateAction
         if hasActiveTurn {
+            // Now = queue it, then stop the turn: the host runs the queue as
+            // soon as the chat is idle, so it goes next either way.
             action = .chatPendingMessageSet(ChatPendingMessageSetAction(
                 type: .chatPendingMessageSet,
-                kind: .queued,
+                kind: delivery == .next ? .steering : .queued,
                 id: UUID().uuidString,
                 message: message
             ))
+            await dispatchChatAction(action, chatURI: chatURI)
+            if delivery == .now {
+                await cancelTurn()
+            }
+            return
         } else {
             action = .chatTurnStarted(ChatTurnStartedAction(
                 type: .chatTurnStarted,
@@ -1191,6 +1215,19 @@ final class AppStore {
         // and, for the queued case, follow up with `pendingMessageRemoved` +
         // `turnStarted` once it consumes the queue.
         await dispatchChatAction(action, chatURI: chatURI)
+    }
+
+    /// Take back a message still waiting in the current chat.
+    func removePendingMessage(kind: PendingMessageKind, id: String) async {
+        guard let chatURI = currentChatURI else { return }
+        await dispatchChatAction(
+            .chatPendingMessageRemoved(ChatPendingMessageRemovedAction(
+                type: .chatPendingMessageRemoved,
+                kind: kind,
+                id: id
+            )),
+            chatURI: chatURI
+        )
     }
 
     /// Cancel the active turn in the current chat.
