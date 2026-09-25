@@ -161,7 +161,8 @@ struct ToolCallGroupView: View {
                         ToolCallPartView(toolCall: call, forceCompact: true)
                     }
                 }
-                .padding(.leading, 12)
+                // Row icons under the header's icon (10pt in).
+                .padding(.leading, 6)
             }
         }
         .background(

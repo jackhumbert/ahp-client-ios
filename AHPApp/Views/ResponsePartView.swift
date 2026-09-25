@@ -164,7 +164,9 @@ struct ToolCallPartView: View {
                 statusView
                     .font(.footnote)
             }
-            .padding(.horizontal, 10)
+            // Icons on the same left edge as reply text (4pt in).
+            .padding(.leading, 4)
+            .padding(.trailing, 10)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
         }

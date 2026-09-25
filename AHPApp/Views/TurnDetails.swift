@@ -146,6 +146,8 @@ struct TurnDetailsLine: View {
             }
             .font(.caption2)
             .foregroundStyle(.tertiary)
+            // The same left edge as reply text.
+            .padding(.leading, 4)
             .accessibilityElement(children: .combine)
         }
     }
