@@ -125,11 +125,65 @@ struct ReasoningPartView: View {
 
 struct ToolCallPartView: View {
     let toolCall: ToolCallState
+    /// One line regardless of the setting (inside a collapsed group).
+    var forceCompact = false
     @Environment(AppStore.self) private var store
+    @AppStorage(ToolCallStyle.storageKey) private var style: ToolCallStyle = .cards
     @State private var showDetail = false
     @State private var showInputRequest = false
 
+    /// One line, unless the call is waiting on the user: that always gets
+    /// the full card with its buttons.
+    private var isCompact: Bool {
+        (forceCompact || style != .cards) && !toolCall.needsUser && pendingInputRequest == nil
+    }
+
     var body: some View {
+        if isCompact {
+            compactRow
+        } else {
+            card
+        }
+    }
+
+    private var compactRow: some View {
+        Button {
+            showDetail = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: toolIcon)
+                    .font(.footnote)
+                    .foregroundStyle(toolColor)
+                    .frame(width: 18)
+                Text(compactLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                statusView
+                    .font(.footnote)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(compactLine)
+        .sheet(isPresented: $showDetail) {
+            ToolCallDetailSheet(toolCall: toolCall)
+        }
+    }
+
+    /// What the call did, in a line: its own message or description, else
+    /// the tool's name and what it touched ("Read file · /repo/README.md").
+    private var compactLine: String {
+        if let line = invocationLine { return line }
+        if let summary = toolInputSummary { return "\(displayName) · \(summary)" }
+        return displayName
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 8) {
             details
                 // Only the details open the sheet: a tap gesture on the whole
@@ -472,6 +526,9 @@ struct ToolCallPartView: View {
     private var invocationLine: String? {
         guard let msg = invocationMessage else { return toolInputDescription }
         let text = stringOrMarkdownText(msg)
+        // agent-host-server's stand-in when an agent sends no message says
+        // nothing the tool's name doesn't.
+        if text == "Running \(displayName)" { return toolInputDescription }
         guard ToolCallText.repeats(text, summary: toolInputSummary, displayName: displayName) else {
             return text
         }
@@ -504,7 +561,7 @@ struct ToolCallPartView: View {
         if let command = object["command"] as? String, !command.isEmpty {
             return "$ " + command
         }
-        for key in ["file_path", "path", "notebook_path", "pattern", "url", "query"] {
+        for key in ["file_path", "notebook_path", "pattern", "url", "query", "path"] {
             if let value = object[key] as? String, !value.isEmpty {
                 return value
             }

@@ -894,9 +894,7 @@ struct TurnView: View {
             UserBubble(text: turn.message.text, attachments: turn.message.attachments)
 
             // Response parts
-            ForEach(Array(turn.responseParts.enumerated()), id: \.offset) { _, part in
-                ResponsePartView(part: part)
-            }
+            ResponsePartsView(parts: turn.responseParts)
 
             if turn.state == .cancelled {
                 Label("Cancelled", systemImage: "xmark.circle")
@@ -922,9 +920,7 @@ struct ActiveTurnView: View {
         VStack(alignment: .leading, spacing: 12) {
             UserBubble(text: turn.message.text, attachments: turn.message.attachments)
 
-            ForEach(Array(turn.responseParts.enumerated()), id: \.offset) { _, part in
-                ResponsePartView(part: part)
-            }
+            ResponsePartsView(parts: turn.responseParts)
 
             // Streaming indicator
             HStack(spacing: 6) {

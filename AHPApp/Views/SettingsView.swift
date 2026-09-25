@@ -19,6 +19,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Reply Details", systemImage: "text.bubble")
                     }
+                    NavigationLink {
+                        ToolCallStyleSettings()
+                    } label: {
+                        Label("Tool Calls", systemImage: "wrench.and.screwdriver")
+                    }
                 }
                 tunnelSection
                 debugSection

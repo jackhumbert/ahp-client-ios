@@ -34,13 +34,19 @@ class S:
     def __init__(self, ctx): self.n = 0
     async def send_user_message(self, message: UserMessage, sink: TurnSink) -> None:
         self.n += 1
-        cid = f"call-{self.n}"
-        await sink.tool_call_started(cid, "Bash", json.dumps(INPUT), display_name="Run command")
-        if self.n % 2 == 0:
-            # Every other call, the command itself as the message (opencode and
-            # the Windows node do this): the card should show the description.
-            await sink.tool_call_delta(cid, invocation_message=INPUT["command"][:60] + "…")
-        await sink.tool_call_completed(cid, [{"type": "text", "text": "AGENTS.md\nREADME.md\n---\n42"}], success=True, past_tense_message="Done")
+        # Three calls in a row, to show how runs of calls are displayed.
+        for k, (tool, display, args) in enumerate([
+            ("Bash", "Run command", INPUT),
+            ("Read", "Read file", {"file_path": "/repo/README.md"}),
+            ("Grep", "Search", {"pattern": "TODO", "path": "/repo"}),
+        ]):
+            cid = f"call-{self.n}-{k}"
+            await sink.tool_call_started(cid, tool, json.dumps(args), display_name=display)
+            if tool == "Bash" and self.n % 2 == 0:
+                # Every other turn, the command itself as the message (opencode
+                # and the Windows node do this): the card shows the description.
+                await sink.tool_call_delta(cid, invocation_message=INPUT["command"][:60] + "…")
+            await sink.tool_call_completed(cid, [{"type": "text", "text": "ok"}], success=True, past_tense_message="Done")
         await sink.text_delta(REPLY)
     async def cancel(self, reason=None): pass
     async def aclose(self): pass

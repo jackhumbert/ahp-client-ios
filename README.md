@@ -37,6 +37,8 @@ As inherited from upstream, plus the session settings:
 - Choose what shows under each reply (Settings → Reply Details): time
   received, duration, model, tool calls, input/output/cached tokens, in any
   order — time received by default
+- Tool calls as cards, compact one-liners, or collapsed runs ("5 tool calls ✓")
+  that expand (Settings → Tool Calls); a call waiting on you is always a card
 - Browse the session's files and open them — markdown rendered, code with line
   numbers, images — from the chat's folder button; links in replies to files
   (`[a](src/a.swift:42)`, relative or absolute) open the file at that line
