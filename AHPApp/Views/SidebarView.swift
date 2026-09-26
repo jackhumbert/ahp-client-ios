@@ -86,6 +86,8 @@ struct SidebarView: View {
     @State private var newSessionDirectory: String?
     @State private var editingServer: ServerConfiguration?
     @State private var showingTunnels = false
+    /// The host's files, browsed from its root rather than a session's folder.
+    @State private var browsingFiles = false
     @AppStorage("sessionGroupingMode") private var groupingMode: SessionGroupingMode = .byTime
     /// What the list is narrowed to, from tapping a row in the summary card:
     /// an agent's provider id, or `machine:<id>`. Nil shows everything.
@@ -282,6 +284,13 @@ struct SidebarView: View {
 
                     if store.selectedServer != nil {
                         Section {
+                            if store.connectionState == .connected, store.defaultDirectory != nil {
+                                Button {
+                                    browsingFiles = true
+                                } label: {
+                                    Label("Browse Files", systemImage: "folder")
+                                }
+                            }
                             Button {
                                 Task {
                                     if store.connectionState == .connected {
@@ -356,6 +365,14 @@ struct SidebarView: View {
             // Force fresh @State when switching between folder/non-folder creation
             .id(newSessionDirectory)
             .environment(store)
+        }
+        .sheet(isPresented: $browsingFiles) {
+            // The host's own root: its default directory, or through a
+            // broker in front of several machines, the list of machines.
+            if let root = store.defaultDirectory {
+                FolderBrowserView(start: root)
+                    .environment(store)
+            }
         }
         .sheet(isPresented: $showingTunnels) {
             NavigationStack {

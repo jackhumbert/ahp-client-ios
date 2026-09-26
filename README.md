@@ -59,6 +59,9 @@ As inherited from upstream, plus the session settings:
 - Browse the session's files and open them — markdown rendered, code with line
   numbers, images — from the chat's folder button; links in replies to files
   (`[a](src/a.swift:42)`, relative or absolute) open the file at that line
+- Browse a host's files without a session (⋯ → Browse Files on the session
+  list): the same browser, from the host's root — or, behind a broker with
+  several machines, from the list of machines
 - Stream chat responses — markdown with headings, lists, code blocks, tables
   and quotes, reasoning, tool calls with their inputs and
   outputs
