@@ -191,7 +191,10 @@ struct ChatView: View {
 
                     // Floating reconnect progress bar
                     if store.isReconnectBannerVisible {
-                        ReconnectProgressBar()
+                        ReconnectProgressBar(
+                            stage: store.connectionStage,
+                            serverName: store.selectedServer?.name
+                        )
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
@@ -1038,13 +1041,16 @@ struct PendingMessageView: View {
 // MARK: - ReconnectProgressBar
 
 /// Floating horizontal progress indicator shown at the top of the chat view
-/// while a reconnect is in flight.
+/// while a connect or reconnect is in flight, saying which stage it is in.
 private struct ReconnectProgressBar: View {
+    let stage: ConnectionStage
+    let serverName: String?
+
     var body: some View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("Reconnecting…")
+            ConnectionStageText(stage: stage, serverName: serverName, fallback: "Reconnecting…")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }

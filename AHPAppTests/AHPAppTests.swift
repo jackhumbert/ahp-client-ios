@@ -361,10 +361,10 @@ struct InjectedTransportTests {
         await connection.disconnect()
     }
 
-    @Test func sceneActiveReconnectsEvenWhileStateStillLooksConnected() async throws {
+    @Test func sceneActiveReconnectsWhenAConnectionThatLooksConnectedIsSilent() async throws {
         let transport = TestWebSocketTransport()
         let connection = AHPConnection(clientId: "test-client") { _, _ in transport }
-        let store = AppStore(connection: connection)
+        let store = AppStore(connection: connection, foregroundPingTimeout: .milliseconds(50))
         let server = ServerConfiguration(name: "Test", host: "example.test")
         let sessionURI = "copilot:/session-1"
         let summary = makeSessionSummary(resource: sessionURI, title: "Session", modifiedAt: 42)
@@ -384,6 +384,9 @@ struct InjectedTransportTests {
         await selectTask.value
 
         let sceneActiveTask = Task { await store.handleSceneActive() }
+        // Left unanswered, as a connection that died in the background would.
+        let ping = try await transport.nextSentMessage(timeoutNanoseconds: 1_000_000_000)
+        #expect(ping.method == "ping")
         let reconnect = try await transport.nextSentMessage(timeoutNanoseconds: 1_000_000_000)
         #expect(reconnect.method == "reconnect")
 
@@ -412,10 +415,84 @@ struct InjectedTransportTests {
         await connection.disconnect()
     }
 
-    @Test func triggerPathRetainsForegroundRecoveryAfterOpeningSession() async throws {
+    @Test func sceneActiveKeepsAConnectionThatStillAnswers() async throws {
         let transport = TestWebSocketTransport()
         let connection = AHPConnection(clientId: "test-client") { _, _ in transport }
         let store = AppStore(connection: connection)
+        let server = ServerConfiguration(name: "Test", host: "example.test")
+        let summary = makeSessionSummary(resource: "copilot:/session-1", title: "Session", modifiedAt: 42)
+
+        store.servers = [server]
+        store.selectedServerId = server.id
+        try await connectStore(store, over: transport, summaries: [summary])
+
+        let sceneActiveTask = Task { await store.handleSceneActive() }
+        let ping = try await transport.nextSentMessage(timeoutNanoseconds: 1_000_000_000)
+        #expect(ping.method == "ping")
+        try await transport.enqueueSuccessResponse(id: try requireRequestID(ping), result: TestEmptyResult())
+        await sceneActiveTask.value
+
+        #expect(store.sessionDebugStatus.lastTriggerDetail == "connection alive")
+        #expect(store.sessionDebugStatus.lastSuccessfulReconnectAt == nil)
+        #expect(store.connectionStage == .idle)
+        #expect(!store.isReconnectBannerVisible)
+        #expect(await transport.bufferedSentMessageCount() == 0)
+
+        await connection.disconnect()
+    }
+
+    @Test func connectReportsEachStage() async throws {
+        let transport = TestWebSocketTransport()
+        let connection = AHPConnection(clientId: "test-client") { _, _ in transport }
+        let store = AppStore(connection: connection)
+        let server = ServerConfiguration(name: "Test", host: "example.test")
+
+        store.servers = [server]
+        store.selectedServerId = server.id
+
+        let connectTask = Task { await store.connect() }
+        let initialize = await transport.nextSentMessage()
+        // The handshake is out over an open socket: the wait is the server's.
+        try await waitUntil {
+            if case .waitingForServer = store.connectionStage { return true }
+            return false
+        }
+        try await transport.enqueueSuccessResponse(
+            id: try requireRequestID(initialize),
+            result: makeInitializeResult(serverSeq: 10)
+        )
+
+        let listSessions = await transport.nextSentMessage()
+        #expect(store.connectionStage == .loadingSessions)
+        try await transport.enqueueSuccessResponse(
+            id: try requireRequestID(listSessions),
+            result: ListSessionsResult(items: [])
+        )
+        await connectTask.value
+
+        #expect(store.connectionStage == .idle)
+
+        await connection.disconnect()
+    }
+
+    @Test func connectionStageLabelsCountTheWait() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        #expect(ConnectionStage.idle.label(serverName: "Broker", now: start) == nil)
+        #expect(ConnectionStage.opening(attempt: 1, of: 4).label(serverName: nil, now: start) == "Connecting…")
+        #expect(ConnectionStage.opening(attempt: 3, of: 4).label(serverName: nil, now: start)
+            == "Connecting (attempt 3 of 4)…")
+        #expect(ConnectionStage.waitingForServer(since: start).label(serverName: "Broker", now: start)
+            == "Waiting for Broker…")
+        #expect(ConnectionStage.waitingForServer(since: start)
+            .label(serverName: "Broker", now: start.addingTimeInterval(7.4)) == "Waiting for Broker… 7s")
+        #expect(ConnectionStage.retrying(attempt: 2, of: 4, at: start.addingTimeInterval(1.5))
+            .label(serverName: nil, now: start) == "Couldn't connect. Retrying in 2s…")
+    }
+
+    @Test func triggerPathRetainsForegroundRecoveryAfterOpeningSession() async throws {
+        let transport = TestWebSocketTransport()
+        let connection = AHPConnection(clientId: "test-client") { _, _ in transport }
+        let store = AppStore(connection: connection, foregroundPingTimeout: .milliseconds(50))
         let server = ServerConfiguration(name: "Test", host: "example.test")
         let sessionURI = "copilot:/session-1"
         let summary = makeSessionSummary(resource: sessionURI, title: "Session", modifiedAt: 42)
@@ -434,6 +511,8 @@ struct InjectedTransportTests {
         await initialSelectTask.value
 
         let sceneActiveTask = Task { await store.handleSceneActive() }
+        let ping = try await transport.nextSentMessage(timeoutNanoseconds: 1_000_000_000)
+        #expect(ping.method == "ping")
         let reconnect = try await transport.nextSentMessage(timeoutNanoseconds: 1_000_000_000)
         try await transport.enqueueSuccessResponse(
             id: try requireRequestID(reconnect),
@@ -1421,9 +1500,26 @@ private struct TestSuccessResponse<Result: Codable & Sendable>: Codable, Sendabl
     let result: Result
 }
 
+private struct TestEmptyResult: Codable, Sendable {}
+
 private enum TestHarnessError: Error {
     case missingRequestID(String)
     case sentMessageTimeout
+    case conditionTimeout
+}
+
+/// Polls `condition` on the main actor until it holds, for state that
+/// arrives through a hop the test cannot await directly.
+@MainActor
+private func waitUntil(
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    _ condition: () -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + .nanoseconds(Int64(timeoutNanoseconds))
+    while !condition() {
+        guard ContinuousClock.now < deadline else { throw TestHarnessError.conditionTimeout }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
 }
 
 private func connectConnection(

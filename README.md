@@ -20,7 +20,10 @@ iPhone and iPad, iOS 26 and later.
 As inherited from upstream, plus the session settings:
 
 - Connect to one or more AHP hosts over `ws://` or `wss://`, with reconnection
-  that replays missed actions when the app returns from the background
+  that replays missed actions when the app returns from the background. A
+  connection that still answers a `ping` is kept rather than rebuilt, and while
+  one is being made the app says which stage it is at (connecting, waiting for
+  the server with a running count, loading sessions, retrying)
 - Several agents on one server: the session list's card shows each agent by
   name with its own counts, and tapping one narrows the list to it
 - Several machines behind agent-host-broker (which lists them in root `_meta`):

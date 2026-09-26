@@ -27,6 +27,24 @@ struct SessionDebugStatus {
     var recentEvents: [SessionDebugEvent] = []
 }
 
+/// How far a connect or reconnect has got, so the UI can say what it is
+/// waiting on rather than showing one "Reconnecting…" that looks frozen.
+enum ConnectionStage: Equatable {
+    /// Nothing in flight.
+    case idle
+    /// Asking a connection that may have died while the app was away
+    /// whether it still answers.
+    case checking
+    /// Opening the socket (and, for a tunnel, fetching its endpoint first).
+    case opening(attempt: Int, of: Int)
+    /// The socket is open; the server has yet to answer the handshake.
+    case waitingForServer(since: Date)
+    /// Connected; fetching the session list.
+    case loadingSessions
+    /// An attempt failed; the next one starts at `at`.
+    case retrying(attempt: Int, of: Int, at: Date)
+}
+
 /// Central state container for the AHP client app.
 ///
 /// Holds the root state (agents/models), per-session state, and the active connection.
@@ -124,8 +142,12 @@ final class AppStore {
     /// `true` while a reconnect (or fallback connect) is in progress.
     var isReconnecting = false
 
-    /// Debounced reconnect banner state for the chat view.
+    /// Debounced banner state for the chat view: `true` once a connect or
+    /// reconnect has been in flight longer than a moment.
     var isReconnectBannerVisible = false
+
+    /// Where the connect or reconnect in flight has got to.
+    private(set) var connectionStage: ConnectionStage = .idle
 
     /// Default working directory reported by the server (from `InitializeResult.defaultDirectory`).
     var defaultDirectory: String?
@@ -340,6 +362,7 @@ final class AppStore {
     private var activeConnectTask: Task<Void, Never>?
     private var activeReconnectTask: Task<Void, Never>?
     private var reconnectBannerTask: Task<Void, Never>?
+    private let foregroundPingTimeout: Duration
     private let activeSessionPrefetchLimit = 5
 
     // MARK: - Init
@@ -347,12 +370,14 @@ final class AppStore {
     init(
         connection: AHPConnection = AHPConnection(),
         currentDateProvider: @escaping () -> Date = Date.init,
-        reconnectBannerDelayNanoseconds: UInt64 = 700_000_000
+        reconnectBannerDelayNanoseconds: UInt64 = 700_000_000,
+        foregroundPingTimeout: Duration = .seconds(3)
     ) {
         let conn = connection
         self.connection = conn
         self.currentDateProvider = currentDateProvider
         self.reconnectBannerDelayNanoseconds = reconnectBannerDelayNanoseconds
+        self.foregroundPingTimeout = foregroundPingTimeout
 
         // Load saved servers
         servers = serverStorage.fetchServers()
@@ -382,6 +407,10 @@ final class AppStore {
             await conn.setOnUnexpectedDisconnect { [weak self] in
                 guard let self else { return }
                 Task { await self.reconnect(debugTrigger: "unexpected disconnect") }
+            }
+            await conn.setOnTransportOpened { [weak self] in
+                guard let self, case .opening = self.connectionStage else { return }
+                self.setConnectionStage(.waitingForServer(since: self.now()))
             }
         }
 
@@ -435,13 +464,22 @@ final class AppStore {
 
     private func setReconnectInFlight(_ active: Bool) {
         isReconnecting = active
-        reconnectBannerTask?.cancel()
-        reconnectBannerTask = nil
+    }
 
-        guard active else {
+    /// Move to `stage`. The banner follows it, shown only once something has
+    /// been in flight for longer than the debounce, so a quick check or
+    /// reconnect never flashes it.
+    private func setConnectionStage(_ stage: ConnectionStage) {
+        let wasIdle = connectionStage == .idle
+        connectionStage = stage
+
+        guard stage != .idle else {
+            reconnectBannerTask?.cancel()
+            reconnectBannerTask = nil
             isReconnectBannerVisible = false
             return
         }
+        guard wasIdle else { return }
 
         let delay = reconnectBannerDelayNanoseconds
         reconnectBannerTask = Task { @MainActor [weak self] in
@@ -449,7 +487,7 @@ final class AppStore {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
             }
-            guard self.isReconnecting else { return }
+            guard !Task.isCancelled, self.connectionStage != .idle else { return }
             self.isReconnectBannerVisible = true
         }
     }
@@ -554,6 +592,17 @@ final class AppStore {
 
         switch connectionState {
         case .connected:
+            // Coming back from the background, a connection that looks
+            // connected may be dead, or may be fine. Throwing a live one away
+            // costs a whole handshake, which through a broker waits on every
+            // machine behind it, so ask it first.
+            setConnectionStage(.checking)
+            let alive = await connection.respondsToPing(within: foregroundPingTimeout)
+            setConnectionStage(.idle)
+            if alive {
+                recordConnectionTrigger("scene active", detail: "connection alive")
+                return
+            }
             let canReconnect = await connection.canReconnect
             if canReconnect {
                 await reconnect(debugTrigger: "scene active reconnect")
@@ -738,10 +787,21 @@ final class AppStore {
     }
 
     private func performConnect(debugTrigger: String) async {
-        defer { activeConnectTask = nil }
+        defer {
+            activeConnectTask = nil
+            setConnectionStage(.idle)
+        }
         recordConnectionTrigger(debugTrigger)
 
         guard var server = selectedServer else { return }
+
+        // Retry the WebSocket handshake with backoff. Slow / flaky networks
+        // routinely fail the first attempt; one transient hiccup shouldn't
+        // strand the user on a "Disconnected" home screen requiring a
+        // manual tap. Auth-style failures (401/403) are not retried since
+        // a fresh attempt would just fail the same way.
+        let backoffsNs: [UInt64] = [0, 1_000_000_000, 2_000_000_000, 4_000_000_000]
+        setConnectionStage(.opening(attempt: 1, of: backoffsNs.count))
 
         if let preparedServer = await prepareTunnelServerForConnection(server) {
             server = preparedServer
@@ -763,16 +823,18 @@ final class AppStore {
 
         errorMessage = nil
 
-        // Retry the WebSocket handshake with backoff. Slow / flaky networks
-        // routinely fail the first attempt; one transient hiccup shouldn't
-        // strand the user on a "Disconnected" home screen requiring a
-        // manual tap. Auth-style failures (401/403) are not retried since
-        // a fresh attempt would just fail the same way.
-        let backoffsNs: [UInt64] = [0, 1_000_000_000, 2_000_000_000, 4_000_000_000]
         var lastError: Error?
         for (attempt, delay) in backoffsNs.enumerated() {
-            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
-            print("[AHP] connect attempt \(attempt + 1)/\(backoffsNs.count) → \(url.absoluteString)")
+            if delay > 0 {
+                setConnectionStage(.retrying(
+                    attempt: attempt + 1,
+                    of: backoffsNs.count,
+                    at: now().addingTimeInterval(Double(delay) / 1_000_000_000)
+                ))
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            setConnectionStage(.opening(attempt: attempt + 1, of: backoffsNs.count))
+            print("[AHP] connect attempt \(attempt + 1)/\(backoffsNs.count) → \(url.host(percentEncoded: false) ?? "?")")
             do {
                 let result = try await connection.connect(to: url, headers: headers)
                 defaultDirectory = result.defaultDirectory
@@ -798,12 +860,16 @@ final class AppStore {
                 // vscode-dev does after `initialize`. This avoids the
                 // inline "Sign-in required" panel for agents (e.g. Copilot)
                 // that accept the same GitHub token already used for the tunnel.
+                setConnectionStage(.loadingSessions)
                 await pushTokenToProtectedResources()
 
                 // Fetch the lightweight list of session summaries. Full state
                 // remains lazy by default; we only prefetch a small bounded set
                 // of sessions that are currently active today.
                 let serverURIs = await fetchSessionSummaries()
+                // The sidebar is current from here; what follows only
+                // re-reads sessions, each of which shows its own sync state.
+                setConnectionStage(.idle)
 
                 // Prune sessions the server no longer knows about (e.g. after a
                 // server restart) — but only if we got a valid list. We do this
@@ -910,8 +976,10 @@ final class AppStore {
         }
 
         setReconnectInFlight(true)
+        setConnectionStage(.opening(attempt: 1, of: 1))
         defer {
             setReconnectInFlight(false)
+            setConnectionStage(.idle)
             activeReconnectTask = nil
         }
 
@@ -938,6 +1006,7 @@ final class AppStore {
                 errorMessage = nil
                 let result = try await connection.reconnect(to: url, headers: headers)
                 applyReconnectResult(result)
+                setConnectionStage(refreshSummaries ? .loadingSessions : .idle)
                 recordSuccessfulReconnect()
                 // Re-push the token after reconnect in case the server lost
                 // session-bound auth state across the outage.
@@ -948,6 +1017,7 @@ final class AppStore {
                     // already-subscribed sessions live; this catches the rest.
                     do {
                         _ = try await fetchSessionSummariesOnce()
+                        setConnectionStage(.idle)
                         await reconcileActiveSessionPrefetch()
                     } catch {
                         errorMessage = error.localizedDescription

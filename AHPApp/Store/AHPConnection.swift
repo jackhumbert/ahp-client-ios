@@ -119,6 +119,9 @@ actor AHPConnection {
     var onNotification: (@MainActor (AHPNotification) -> Void)?
     var onStateChange: (@MainActor (ConnectionState) -> Void)?
     var onUnexpectedDisconnect: (@MainActor () -> Void)?
+    /// Called once per connection attempt, when the socket is open and the
+    /// handshake is on its way: from then on, any wait is the server's.
+    var onTransportOpened: (@MainActor () -> Void)?
 
     private struct PendingOutboundAction: Sendable {
         let clientSeq: Int
@@ -172,6 +175,47 @@ actor AHPConnection {
         onUnexpectedDisconnect = callback
     }
 
+    func setOnTransportOpened(_ callback: @escaping @MainActor () -> Void) {
+        onTransportOpened = callback
+    }
+
+    // MARK: - Liveness
+
+    /// Whether the server answers a `ping` within `timeout`.
+    ///
+    /// A connection that looks connected can be dead after the app was
+    /// suspended; this tells the two apart without tearing a live one down.
+    /// Any answer counts, an error included: only silence or a transport
+    /// failure means the connection is gone.
+    func respondsToPing(within timeout: Duration) async -> Bool {
+        guard let handle = try? await currentClientHandle() else { return false }
+        let client = await handle.rawClient()
+        let (answers, answer) = AsyncStream.makeStream(of: Bool.self)
+        let ping = Task {
+            do {
+                try await client.ping()
+                answer.yield(true)
+            } catch AHPClientError.rpc {
+                answer.yield(true)
+            } catch {
+                answer.yield(false)
+            }
+        }
+        let timer = Task {
+            try? await Task.sleep(for: timeout)
+            answer.yield(false)
+        }
+        defer {
+            ping.cancel()
+            timer.cancel()
+            answer.finish()
+        }
+        for await alive in answers {
+            return alive
+        }
+        return false
+    }
+
     // MARK: - Connect
 
     @discardableResult
@@ -186,7 +230,7 @@ actor AHPConnection {
         multiHostClient = client
         await startEventTasks(for: client)
 
-        print("[AHP] connect → \(url.absoluteString) (auth header: \(headers["X-Tunnel-Authorization"] != nil))")
+        print("[AHP] connect → \(url.host(percentEncoded: false) ?? "?") (auth header: \(headers["X-Tunnel-Authorization"] != nil))")
         do {
             let config = makeHostConfig(url: url, headers: headers)
             try await client.add(config)
@@ -368,8 +412,10 @@ actor AHPConnection {
         HostConfig(
             id: hostId,
             label: url.host(percentEncoded: false) ?? url.absoluteString,
-            transportFactory: { [transportFactory] _ in
-                try await transportFactory(url, headers)
+            transportFactory: { [transportFactory, weak self] _ in
+                OpenReportingTransport(inner: try await transportFactory(url, headers)) {
+                    await self?.transportOpened()
+                }
             }
         )
         .withClientId(clientId)
@@ -384,6 +430,12 @@ actor AHPConnection {
         .withReconnectPolicy(.disabled)
         .withSessionSummaryRefreshOnConnect(false)
         .withReconnectReplayFanOut(false)
+    }
+
+    private func transportOpened() async {
+        if let callback = onTransportOpened {
+            await MainActor.run { callback() }
+        }
     }
 
     private func startEventTasks(for client: MultiHostClient) async {
@@ -757,6 +809,42 @@ actor AHPConnection {
             return .nanoseconds(Int64.max)
         }
         return .nanoseconds(Int64(nanoseconds))
+    }
+}
+
+/// Passes a transport through, reporting once when its first send completes.
+/// The WebSocket opens lazily on that send, so this is the moment the socket
+/// and TLS are up and the handshake request is on the wire.
+private actor OpenReportingTransport: AHPKeepAliveTransport {
+    private let inner: any AHPTransport
+    private var onOpen: (@Sendable () async -> Void)?
+
+    init(inner: any AHPTransport, onOpen: @escaping @Sendable () async -> Void) {
+        self.inner = inner
+        self.onOpen = onOpen
+    }
+
+    func send(_ message: TransportMessage) async throws {
+        try await inner.send(message)
+        if let onOpen {
+            self.onOpen = nil
+            await onOpen()
+        }
+    }
+
+    func recv() async throws -> TransportMessage? {
+        try await inner.recv()
+    }
+
+    func close() async throws {
+        try await inner.close()
+    }
+
+    /// Both transports the app builds can ping; one that could not would
+    /// simply never be declared dead by keep-alive, as before this wrapper.
+    func sendPing(timeout: Duration) async throws {
+        guard let keepAlive = inner as? any AHPKeepAliveTransport else { return }
+        try await keepAlive.sendPing(timeout: timeout)
     }
 }
 

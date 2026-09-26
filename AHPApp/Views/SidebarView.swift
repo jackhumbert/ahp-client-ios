@@ -561,6 +561,8 @@ struct SidebarView: View {
             activeSessions: activeSessions,
             idleSessions: idleSessions,
             connectionState: store.connectionState,
+            connectionStage: store.connectionStage,
+            serverName: store.selectedServer?.name,
             onSelectAgent: { provider in
                 withAnimation(.snappy) {
                     agentFilter = agentFilter == provider ? nil : provider
@@ -612,6 +614,8 @@ struct SummaryCardView: View, Equatable {
     let activeSessions: Int
     let idleSessions: Int
     let connectionState: AHPConnection.ConnectionState
+    let connectionStage: ConnectionStage
+    let serverName: String?
     /// Excluded from `==`: a new closure every render must not defeat the skip.
     var onSelectAgent: (String) -> Void = { _ in }
 
@@ -622,11 +626,17 @@ struct SummaryCardView: View, Equatable {
             && lhs.activeSessions == rhs.activeSessions
             && lhs.idleSessions == rhs.idleSessions
             && lhs.connectionState == rhs.connectionState
+            && lhs.connectionStage == rhs.connectionStage
+            && lhs.serverName == rhs.serverName
     }
 
     private var isConnected: Bool { connectionState == .connected }
+    /// A connection that still answers is only being checked or refreshed,
+    /// which is not worth a spinner here; one that is down and between
+    /// retries is still in progress.
     private var isInProgress: Bool {
         connectionState == .connecting || connectionState == .reconnecting
+            || (connectionState == .disconnected && connectionStage != .idle)
     }
 
     private var statusIcon: String {
@@ -668,8 +678,13 @@ struct SummaryCardView: View, Equatable {
                     Image(systemName: statusIcon)
                         .font(.caption2)
                 }
-                Text(statusLabel)
-                    .font(.caption.weight(.medium))
+                if isInProgress {
+                    ConnectionStageText(stage: connectionStage, serverName: serverName, fallback: statusLabel)
+                        .font(.caption.weight(.medium))
+                } else {
+                    Text(statusLabel)
+                        .font(.caption.weight(.medium))
+                }
             }
             .foregroundStyle(statusStyle)
         }
