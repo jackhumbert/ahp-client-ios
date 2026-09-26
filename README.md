@@ -83,9 +83,10 @@ Try it against the sibling Python host:
 python -m agent_host_server --delay 0.05
 ```
 
-then add the server `127.0.0.1:4321` (scheme `ws`) in the app. Behind the broker,
-use scheme `wss`, host `broker.example.com`, and a personal broker token in the
-Token field — the app sends it as `?tkn=`, which the broker's Caddy route accepts.
+then add the server `127.0.0.1:4321` (scheme `ws`) in the app. Behind an
+[agent-host-broker](https://github.com/jackhumbert/agent-host-broker-py), use
+scheme `wss`, the broker's host, and a broker token in the Token field — the app
+sends it as `?tkn=`.
 
 ## Install on a phone with SideStore
 

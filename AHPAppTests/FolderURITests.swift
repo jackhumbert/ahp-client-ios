@@ -25,8 +25,8 @@ struct FolderURITests {
         let uri = "file://studio/D:/work"
         #expect(FolderURI.path(uri) == "D:/work")
         #expect(FolderURI.machine(uri) == "studio")
-        #expect(FolderURI.name(uri) == "llm")
-        #expect(FolderURI.parent("file://studio/G:") == nil)
+        #expect(FolderURI.name(uri) == "work")
+        #expect(FolderURI.parent("file://studio/D:") == nil)
     }
 
     @Test func ahpFileWalksFromMachinesIntoAMachinesRoot() {

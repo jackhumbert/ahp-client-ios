@@ -6,6 +6,23 @@ with zero context.
 **Read first:** [`UPSTREAM.md`](UPSTREAM.md) — what this is a fork of, what is
 pinned, and how to move the pin.
 
+## Keep it generic
+
+This repository is public. It is an app for anyone to build and point at
+their own hosts, so nothing tracked may name or depend on one particular
+setup: no hostnames, machine names, domains, home-directory paths, IP
+addresses, tokens, employers or internal projects. Use placeholders
+(`example.com`, `my-mac-mini`, `/Users/me`) in code, tests, docs *and* commit
+messages — a commit message is as public as the code.
+
+Deployment glue (service files, reverse-proxy config, one fleet's layout)
+belongs in the deployment, not here. A feature one setup needs is generalised
+into an option or left out.
+
+Anything an agent needs to know about the local setup lives in
+`AGENTS.local.md`, gitignored by `*.local.*`. Read it if it exists; never copy
+from it into a tracked file.
+
 ## What this project is
 
 A native iOS (iPhone and iPad) **client** for the Agent Host Protocol, in Swift
@@ -17,7 +34,7 @@ protocol layer — generated wire types, the reducers, the WebSocket transport,
 `MultiHostClient` — is upstream's Swift package `AgentHostProtocol`, consumed
 unmodified from GitHub. This repository owns only the app on top of it.
 
-Siblings in `~/Github`, all speaking the same spec revision:
+Sibling checkouts (cloned next to this one), all speaking the same spec revision:
 
 | Repository | Role |
 |---|---|
@@ -88,15 +105,10 @@ Code signing for a device reads `AHP_DEVELOPMENT_TEAM` from
 
 Before blaming the app for something missing on screen, look at the wire:
 
-- **Live conversations** (through `broker.example.com`): the user-level Claude
-  Code skill `ahp-broker` (`~/.claude/skills/ahp-broker/`) lists sessions and
-  prints each turn's tool calls exactly as the host sent them. It is read-only.
-  Its token lives in `.local/broker-test.token` here — gitignored, mode 0600,
-  label `claude-code-test` on the broker; never print or commit it.
-- **The broker in the simulator**: Debug simulator builds read
+- **A broker in the simulator**: Debug simulator builds read
   `AHP_DEBUG_SERVER` / `AHP_DEBUG_TOKEN` / `AHP_DEBUG_SERVER_NAME` at launch
-  (`Store/DebugLaunchServer.swift`, compiled out of every other build), so the
-  token goes from `.local/` to the app without being typed:
+  (`Store/DebugLaunchServer.swift`, compiled out of every other build), so a
+  token reaches the app without being typed:
 
   ```bash
   SIMCTL_CHILD_AHP_DEBUG_SERVER=wss://broker.example.com \
@@ -105,12 +117,12 @@ Before blaming the app for something missing on screen, look at the wire:
     xcrun simctl launch <device> com.jhumbert.agent-host-client
   ```
 
-  Only read and browse through it: creating a session there runs Claude on the
-  user's real machines.
+  `.local/` is gitignored; keep tokens there, mode 0600, and never print or
+  commit one.
 - **A local broker**: `scripts/local_broker.py` puts two local hosts behind the
   sibling checkout's agent-host-broker on `127.0.0.1:4396` (no token) — see its
   docstring. Folder URIs differ between that checkout (`ahp-file:`) and the
-  deployed broker (`file://<machine>/`); `FolderURI` handles both, and
+  older brokers (`file://<machine>/`); `FolderURI` handles both, and
   `AHPAppTests/FolderURITests.swift` pins every shape.
 - **A reproducible host**: `scripts/fake_bash_host.py` serves one agent on
   `127.0.0.1:4397` whose every turn replays a Claude-Code-shaped `Bash` call

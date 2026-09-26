@@ -18,3 +18,7 @@ build/
 
 # Local secrets for testing (broker token)
 .local/
+
+# Local, per-machine notes and config (AGENTS.local.md etc.)
+*.local.*
+!*.local.*.example

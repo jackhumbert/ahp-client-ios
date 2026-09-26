@@ -1,6 +1,6 @@
 """Test-only: a broker on 127.0.0.1:4396 in front of two local hosts.
 
-Reproduces what broker.example.com looks like to the app — several agents on
+Reproduces what a deployed broker looks like to the app — several agents on
 one server, machine-qualified folder URIs — without a token. It runs whatever
 agent-host-broker the sibling checkout has: at the time of writing that serves
 `ahp-file:///<machine>/…` and lists machines at `ahp-file:///`, where the
