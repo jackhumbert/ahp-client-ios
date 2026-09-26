@@ -55,7 +55,7 @@ decoder. Confirm with a unit decode of `{"status": "suspended"}` before filing.
 `try?` and falls back to `try RootState(from:)`, so when nothing matches, the
 error that surfaces is always RootState's. A chat snapshot with one turn
 missing the required `Message.origin` (a host bug, fixed in
-`ahp-host` `c680bbc`) showed up in the app as
+`ahp-py` `24a590f`) showed up in the app as
 ``keyNotFound: 'agents' … Path: snapshot.state``. Decoding the same JSON as
 `ChatState` directly gave the real error: `keyNotFound: 'origin'`, path
 `turns[0].message`.
