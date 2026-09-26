@@ -233,15 +233,22 @@ enum MarkdownBlock: Equatable {
 }
 
 /// Draws a markdown document block by block.
+///
+/// Text blocks are `SelectableText`, so a range can be selected (and quoted
+/// into a reply); a selection stays within one block.
 struct MarkdownBlocksView: View {
     let blocks: [MarkdownBlock]
+    /// The text's colour. A quote passes secondary: `foregroundStyle` does not
+    /// reach into a UIKit text view.
+    var textColor: UIColor = .label
 
     init(_ source: String) {
         self.blocks = MarkdownBlock.parse(source)
     }
 
-    init(blocks: [MarkdownBlock]) {
+    init(blocks: [MarkdownBlock], textColor: UIColor = .label) {
         self.blocks = blocks
+        self.textColor = textColor
     }
 
     var body: some View {
@@ -258,22 +265,23 @@ struct MarkdownBlocksView: View {
     private func view(for block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let text):
-            Text(Self.inline(text, style: Self.headingStyle(level)))
-                .font(Self.headingFont(level))
+            SelectableText(Self.selectableInline(
+                text, font: Self.headingUIFont(level), style: Self.headingStyle(level), color: textColor
+            ))
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
-            Text(Self.inline(text))
+            SelectableText(Self.selectableInline(text, color: textColor))
         case .listItem(let ordinal, let indent, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(ordinal ?? (indent == 0 ? "•" : "◦"))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                Text(Self.inline(text))
+                SelectableText(Self.selectableInline(text, color: textColor))
             }
             .padding(.leading, CGFloat(indent) * 16)
         case .quote(let inner):
-            MarkdownBlocksView(blocks: inner)
+            MarkdownBlocksView(blocks: inner, textColor: .secondaryLabel)
                 .foregroundStyle(.secondary)
                 .padding(.leading, 10)
                 .overlay(alignment: .leading) {
@@ -283,9 +291,12 @@ struct MarkdownBlocksView: View {
                 }
         case .code(_, let text):
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(text)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(Self.codeColor)
+                SelectableText(NSAttributedString(string: text, attributes: [
+                    .font: UIFont.monospacedSystemFont(
+                        ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize, weight: .regular
+                    ),
+                    .foregroundColor: UIColor.systemOrange,
+                ]))
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(10)
             }
@@ -322,15 +333,6 @@ struct MarkdownBlocksView: View {
 
     private static let columnWidth: CGFloat = 180
 
-    private static func headingFont(_ level: Int) -> Font {
-        switch level {
-        case 1: .title2.weight(.bold)
-        case 2: .title3.weight(.semibold)
-        case 3: .headline
-        default: .subheadline.weight(.semibold)
-        }
-    }
-
     /// Emphasis, code spans and links inside a block; the raw text if that fails.
     ///
     /// Code spans are orange, like code blocks, and a size smaller than the
@@ -350,6 +352,56 @@ struct MarkdownBlocksView: View {
             parsed[run.range].font = codeFont
         }
         return parsed
+    }
+
+    /// `inline` for UIKit: the same emphasis, code spans and links, as
+    /// attributes a `UITextView` draws. `font` is the surrounding text's font
+    /// and `style` its text style, which sizes code spans.
+    static func selectableInline(
+        _ text: String,
+        font: UIFont = .preferredFont(forTextStyle: .body),
+        style: UIFont.TextStyle = .body,
+        color: UIColor = .label
+    ) -> NSAttributedString {
+        guard let parsed = try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) else {
+            return NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+        }
+        let codeFont = UIFont.monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: style).pointSize * inlineCodeScale,
+            weight: .regular
+        )
+        let result = NSMutableAttributedString()
+        for run in parsed.runs {
+            let intent = run.inlinePresentationIntent ?? []
+            var runFont = font
+            var traits = font.fontDescriptor.symbolicTraits
+            if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
+            if intent.contains(.emphasized) { traits.insert(.traitItalic) }
+            if let descriptor = font.fontDescriptor.withSymbolicTraits(traits) {
+                runFont = UIFont(descriptor: descriptor, size: 0)
+            }
+            var attributes: [NSAttributedString.Key: Any] = [.font: runFont, .foregroundColor: color]
+            if intent.contains(.code) {
+                attributes[.font] = codeFont
+                attributes[.foregroundColor] = UIColor.systemOrange
+            }
+            if intent.contains(.strikethrough) {
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
+            if let link = run.link {
+                attributes[.link] = link
+            }
+            result.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
+        }
+        return result
+    }
+
+    private static func headingUIFont(_ level: Int) -> UIFont {
+        let size = UIFont.preferredFont(forTextStyle: headingStyle(level)).pointSize
+        return .systemFont(ofSize: size, weight: level == 1 ? .bold : .semibold)
     }
 
     /// Inline code relative to its surrounding text: 17 pt body → 15 pt.

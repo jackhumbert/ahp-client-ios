@@ -47,6 +47,11 @@ As inherited from upstream, plus the session settings:
   in flight, **Later** runs after it, **Now** stops it and sends yours
   (long-press Send). Waiting messages can be cancelled; a message that joined
   a turn is shown where it joined
+- Select any part of a reply or your own message (drag the handles, as in
+  Notes). **Reply** in the selection menu quotes it into the message box as a
+  markdown blockquote, with a blank line to type under; replying again adds
+  the next quote after what you've written. A selection stays within one
+  paragraph, list item or code block
 - Tool calls as cards, compact one-liners, or collapsed runs ("5 tool calls ✓")
   that expand (Settings → Tool Calls); a call waiting on you is always a card
 - Browse the session's files and open them — markdown rendered, code with line

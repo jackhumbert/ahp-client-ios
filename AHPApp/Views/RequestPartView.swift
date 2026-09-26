@@ -53,7 +53,10 @@ struct UserBubble: View {
     }
 
     private var messageBubble: some View {
-        Text(parsed.displayText)
+        SelectableText(NSAttributedString(string: parsed.displayText, attributes: [
+            .font: UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label,
+        ]))
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             // A system colour defined for light and dark (light grey on

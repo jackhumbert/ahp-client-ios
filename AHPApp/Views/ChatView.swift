@@ -300,6 +300,11 @@ struct ChatView: View {
             openedFile = link
             return .handled
         })
+        // Reply on selected text quotes it into the message box.
+        .environment(\.quoteReply) { selection in
+            inputText = QuoteReply.draft(inputText, quoting: selection)
+            inputFocused = true
+        }
         .sheet(isPresented: $browsingFiles) {
             if let folder = store.currentWorkingDirectory {
                 FolderBrowserView(start: folder)
