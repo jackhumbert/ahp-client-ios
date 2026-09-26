@@ -93,11 +93,25 @@ private struct NumberedText: View {
     let lines: [Substring]
     let line: Int?
     let truncated: Bool
+    /// The widest row, measured up front. A lazy stack only sizes the rows it
+    /// has drawn, so in a sideways-scrolling view its width changed as longer
+    /// lines came into view, and the whole file sat shifted right.
+    let contentWidth: CGFloat
 
     init(text: String, line: Int?, limit: Int) {
         let all = text.split(separator: "\n", omittingEmptySubsequences: false)
         self.lines = Array(all.prefix(limit))
         self.truncated = all.count > limit
+        let font = UIFont.monospacedSystemFont(
+            ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize, weight: .regular
+        )
+        let numbers = String(repeating: "0", count: String(lines.count).count)
+        let longest = lines.max { $0.count < $1.count }.map(String.init) ?? ""
+        func measure(_ s: String) -> CGFloat {
+            ceil((s as NSString).size(withAttributes: [.font: font]).width)
+        }
+        // Numbers, the 12 pt gap, the code, and 12 pt either side.
+        self.contentWidth = measure(numbers) + 12 + measure(longest) + 24
         self.line = line
     }
 
@@ -131,6 +145,7 @@ private struct NumberedText: View {
                             .padding(12)
                     }
                 }
+                .frame(minWidth: contentWidth, alignment: .leading)
                 .padding(.vertical, 8)
                 .textSelection(.enabled)
             }
