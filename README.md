@@ -53,7 +53,9 @@ As inherited from upstream, plus the session settings:
   the next quote after what you've written. A selection stays within one
   paragraph, list item or code block
 - Tool calls as cards, compact one-liners, or collapsed runs ("5 tool calls ✓")
-  that expand (Settings → Tool Calls); a call waiting on you is always a card
+  that expand (Settings → Tool Calls); a call waiting on you is always a card.
+  A call's details show its input and output, with JSON indented and
+  coloured (keys kept in the order the tool sent them)
 - Browse the session's files and open them — markdown rendered, code with line
   numbers, images — from the chat's folder button; links in replies to files
   (`[a](src/a.swift:42)`, relative or absolute) open the file at that line

@@ -152,7 +152,9 @@ struct ReasoningPartView: View {
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
 
             if isExpanded {
-                Text(part.content)
+                // Trimmed: Claude's thinking ends in a blank line, which drew
+                // as extra space inside the bottom of the card.
+                Text(part.content.trimmingCharacters(in: .whitespacesAndNewlines))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -712,9 +714,7 @@ struct ToolCallDetailSheet: View {
                     // --- Input Section ---
                     if let input = toolInput, !input.isEmpty {
                         Section {
-                            Text(input)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
+                            ToolText(text: input)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(10)
                                 .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 8))
@@ -792,9 +792,7 @@ struct ToolResultContentView: View {
     var body: some View {
         switch content {
         case .text(let t):
-            Text(t.text)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
+            ToolText(text: t.text)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 6))
