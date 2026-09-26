@@ -2,7 +2,7 @@ import AgentHostProtocol
 import Testing
 @testable import AHPApp
 
-/// The broker lists its machines in root `_meta`; the app reads them to name
+/// The gateway lists its machines in root `_meta`; the app reads them to name
 /// where a session runs and which agents a folder's machine offers.
 struct MachineTests {
     let meta: [String: AnyCodable] = [
@@ -15,7 +15,7 @@ struct MachineTests {
         ] as [Any]),
     ]
 
-    @Test func machinesAreReadFromTheBrokersMeta() {
+    @Test func machinesAreReadFromTheGatewaysMeta() {
         let machines = Machine.list(from: meta)
         #expect(machines.map(\.id) == ["my-mac-mini", "studio", "laptop"])
         #expect(machines[1].label == "Studio")
@@ -24,6 +24,11 @@ struct MachineTests {
         #expect(machines[2].label == "laptop")
         #expect(machines[2].connected == false)
         #expect(machines[2].agents.isEmpty)
+    }
+
+    @Test func aGatewayFromBeforeTheRenameIsStillRead() {
+        let legacy = [Machine.legacyMetaKey: meta[Machine.metaKey]!]
+        #expect(Machine.list(from: legacy).map(\.id) == ["my-mac-mini", "studio", "laptop"])
     }
 
     @Test func aHostWithNoListHasNoMachines() {

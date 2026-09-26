@@ -1,8 +1,8 @@
-"""Test-only host: every message replays one Bash call shaped like agent-host-server-claude's."""
+"""Test-only host: every message replays one Bash call shaped like ahp-host-claude's."""
 import asyncio, json
-from agent_host_server import Host, LoopbackSingleUserPolicy
-from agent_host_server.provider.base import AgentInfo, AgentSessionContext, ModelInfo, TurnSink, UserMessage
-from agent_host_server.ws import serve_websocket
+from ahp_host import Host, LoopbackSingleUserPolicy
+from ahp_host.provider.base import AgentInfo, AgentSessionContext, ModelInfo, TurnSink, UserMessage
+from ahp_host.ws import serve_websocket
 
 INPUT = {"command": "git ls-files | grep -v '^vehicles/.*/attachments/' | head -200 && echo --- && git ls-files | wc -l",
          "description": "Survey repo files, history, and conventions"}

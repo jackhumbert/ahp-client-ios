@@ -22,23 +22,23 @@ struct AgentPicker: View {
         store.recentFolders(for: selectedProvider.isEmpty ? nil : selectedProvider)
     }
 
-    /// The host's default folder, unless it is agent-host-broker's list of
+    /// The host's default folder, unless it is ahp-gateway's list of
     /// machines (`ahp-file:///`): a place to start browsing, not to work.
     private var usableDefaultDirectory: String? {
-        store.defaultDirectory.flatMap { $0 == FolderURI.brokerRoot ? nil : $0 }
+        store.defaultDirectory.flatMap { $0 == FolderURI.gatewayRoot ? nil : $0 }
     }
 
     /// Where Browse opens: the folder already in the field, else the host's
-    /// default, else this agent's latest folder. A broker in front of several
+    /// default, else this agent's latest folder. A gateway in front of several
     /// machines has no default, and a bare path is not routable through it.
     private var browseStart: String? {
         if let typed = trimmedDirectory, FolderURI.machine(typed) != nil || typed.hasPrefix("file:") {
             return typed
         }
         if let start = store.defaultDirectory ?? recentFolders.first { return start }
-        // agent-host-broker lists its machines at `ahp-file:///`; its URIs in
+        // ahp-gateway lists its machines at `ahp-file:///`; its URIs in
         // any session say this server is one.
-        return store.speaksBrokerFolders ? FolderURI.brokerRoot : nil
+        return store.speaksGatewayFolders ? FolderURI.gatewayRoot : nil
     }
 
     /// Optional pre-filled working directory (e.g. from a folder section).
@@ -61,7 +61,7 @@ struct AgentPicker: View {
         store.agents(forFolder: trimmedDirectory)
     }
 
-    /// "Studio" for a folder on that machine, from the broker's list.
+    /// "Studio" for a folder on that machine, from the gateway's list.
     private func machineName(_ uri: String) -> String? {
         store.machine(forFolder: uri)?.label ?? FolderURI.machine(uri)
     }
@@ -76,7 +76,7 @@ struct AgentPicker: View {
 
     var body: some View {
         Form {
-            // Through a broker the folder picks the machine, and the machine
+            // Through a gateway the folder picks the machine, and the machine
             // decides which agents can run there: folder first.
             if store.hasSeveralMachines {
                 folderSection
@@ -179,7 +179,7 @@ struct AgentPicker: View {
         Section {
             // A chosen folder is a URI (`file://<machine>/path`) too long to
             // read in a one-line field; say it plainly above the field.
-            if let uri = trimmedDirectory, uri.hasPrefix("file:") || uri.hasPrefix("\(FolderURI.brokerScheme):") {
+            if let uri = trimmedDirectory, uri.hasPrefix("file:") || uri.hasPrefix("\(FolderURI.gatewayScheme):") {
                 VStack(alignment: .leading, spacing: 2) {
                     Label(FolderURI.name(uri), systemImage: "folder.fill")
                         .font(.body.weight(.semibold))
@@ -229,7 +229,7 @@ struct AgentPicker: View {
             Text("Working Directory")
         } footer: {
             if let dir = usableDefaultDirectory {
-                // Through a broker the default is a machine's root, whose
+                // Through a gateway the default is a machine's root, whose
                 // path alone reads "/".
                 let machine = machineName(dir).map { " on \($0)" } ?? ""
                 Text("Server default: \(FolderURI.path(dir))\(machine)")

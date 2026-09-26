@@ -62,7 +62,7 @@ struct SystemNotificationPartView: View {
     }
 
     /// A message the user steered into the turn (`_meta.steering`, set by
-    /// agent-host-server): drawn as theirs, where it joined.
+    /// ahp-host): drawn as theirs, where it joined.
     private var isSteering: Bool {
         (part.meta?["steering"]?.value as? Bool) == true
     }
@@ -579,7 +579,7 @@ struct ToolCallPartView: View {
     private var invocationLine: String? {
         guard let msg = invocationMessage else { return toolInputDescription }
         let text = stringOrMarkdownText(msg)
-        // agent-host-server's stand-in when an agent sends no message says
+        // ahp-host's stand-in when an agent sends no message says
         // nothing the tool's name doesn't.
         if text == "Running \(displayName)" { return toolInputDescription }
         guard ToolCallText.repeats(text, summary: toolInputSummary, displayName: displayName) else {

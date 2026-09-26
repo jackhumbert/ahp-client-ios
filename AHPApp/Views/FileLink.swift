@@ -6,7 +6,7 @@ import Foundation
 /// Agents write links relative to the session's working folder —
 /// `[README](README.md)`, `[foo.swift:42](src/foo.swift:42)`, `docs/a.md#L10`
 /// — or as absolute paths. Resolving them against the working folder's URI
-/// keeps the machine the session runs on, which a broker needs to route the
+/// keeps the machine the session runs on, which a gateway needs to route the
 /// read (`file://<machine>/…` or `ahp-file://…`).
 struct FileLink: Hashable, Identifiable {
     let uri: String
@@ -23,7 +23,7 @@ struct FileLink: Hashable, Identifiable {
         if let scheme = URL(string: href)?.scheme?.lowercased() {
             if externalSchemes.contains(scheme) { return nil }
             // A host URI already: open as it is.
-            if scheme == "file" || scheme == FolderURI.brokerScheme {
+            if scheme == "file" || scheme == FolderURI.gatewayScheme {
                 let (path, line) = splitLine(href)
                 return FileLink(uri: path, line: line)
             }
@@ -73,7 +73,7 @@ struct FileLink: Hashable, Identifiable {
             $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(["/"])) ?? $0
         }
         let scheme = base.scheme ?? "file"
-        if scheme == FolderURI.brokerScheme, (base.host() ?? "").isEmpty,
+        if scheme == FolderURI.gatewayScheme, (base.host() ?? "").isEmpty,
            let machine = FolderURI.machine(base.absoluteString) {
             // `ahp-file:///<machine>/<rel>`: the machine is the first segment.
             return "\(scheme):///\(machine)" + (encoded.isEmpty ? "" : "/" + encoded.joined(separator: "/"))
@@ -85,7 +85,7 @@ struct FileLink: Hashable, Identifiable {
     private static func onSameMachine(_ base: URL, absolutePath: String) -> String {
         let scheme = base.scheme ?? "file"
         let path = absolutePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? absolutePath
-        if scheme == FolderURI.brokerScheme, let machine = FolderURI.machine(base.absoluteString) {
+        if scheme == FolderURI.gatewayScheme, let machine = FolderURI.machine(base.absoluteString) {
             return "\(scheme)://\(machine)\(path)"
         }
         return "\(scheme)://\(base.host(percentEncoded: true) ?? "")\(path)"

@@ -1,8 +1,8 @@
 import Testing
 @testable import AHPApp
 
-/// The folder URI shapes the app meets: a single host, the deployed broker
-/// (`file://<machine>/…`) and agent-host-broker's `ahp-file:` scheme.
+/// The folder URI shapes the app meets: a single host, the deployed gateway
+/// (`file://<machine>/…`) and ahp-gateway's `ahp-file:` scheme.
 struct FolderURITests {
     @Test func aLocalHost() {
         let uri = "file:///Users/me/repo"
@@ -14,14 +14,14 @@ struct FolderURITests {
         #expect(FolderURI.parent("file:///") == nil)
     }
 
-    @Test func theDeployedBrokerNamesTheMachineAsTheAuthority() {
+    @Test func theDeployedGatewayNamesTheMachineAsTheAuthority() {
         let uri = "file://my-mac-mini/Users/me/Github"
         #expect(FolderURI.path(uri) == "/Users/me/Github")
         #expect(FolderURI.machine(uri) == "my-mac-mini")
         #expect(FolderURI.child(uri, "other-project") == "file://my-mac-mini/Users/me/Github/other-project")
     }
 
-    @Test func aWindowsDriveThroughTheBroker() {
+    @Test func aWindowsDriveThroughTheGateway() {
         let uri = "file://studio/D:/work"
         #expect(FolderURI.path(uri) == "D:/work")
         #expect(FolderURI.machine(uri) == "studio")
@@ -30,12 +30,12 @@ struct FolderURITests {
     }
 
     @Test func ahpFileWalksFromMachinesIntoAMachinesRoot() {
-        #expect(FolderURI.name(FolderURI.brokerRoot) == "Machines")
-        #expect(FolderURI.parent(FolderURI.brokerRoot) == nil)
-        let machine = FolderURI.child(FolderURI.brokerRoot, "mac-a")
+        #expect(FolderURI.name(FolderURI.gatewayRoot) == "Machines")
+        #expect(FolderURI.parent(FolderURI.gatewayRoot) == nil)
+        let machine = FolderURI.child(FolderURI.gatewayRoot, "mac-a")
         #expect(machine == "ahp-file:///mac-a")
         #expect(FolderURI.name(machine) == "mac-a")
-        #expect(FolderURI.parent(machine) == FolderURI.brokerRoot)
+        #expect(FolderURI.parent(machine) == FolderURI.gatewayRoot)
         let project = FolderURI.child(machine, "projects")
         #expect(project == "ahp-file:///mac-a/projects")
         #expect(FolderURI.path(project) == "/projects")

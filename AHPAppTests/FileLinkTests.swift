@@ -2,11 +2,11 @@ import Testing
 @testable import AHPApp
 
 /// Links in replies point at files relative to the session's folder; they
-/// must resolve to a URI the same host (and, through a broker, the same
+/// must resolve to a URI the same host (and, through a gateway, the same
 /// machine) can read.
 struct FileLinkTests {
     let local = "file:///Users/me/repo"
-    let broker = "ahp-file:///my-mac-mini/agent-host-client-ios"
+    let gateway = "ahp-file:///my-mac-mini/ahp-client-ios"
     let deployed = "file://my-mac-mini/Users/me/repo"
 
     @Test func relativeLinksResolveAgainstTheWorkingFolder() {
@@ -22,11 +22,11 @@ struct FileLinkTests {
         #expect(FileLink.resolve("docs/a.md#L3", base: local)?.line == 3)
     }
 
-    @Test func throughTheBrokerTheMachineIsKept() {
-        #expect(FileLink.resolve("AHPApp/Views/ChatView.swift", base: broker)?.uri
-            == "ahp-file:///my-mac-mini/agent-host-client-ios/AHPApp/Views/ChatView.swift")
+    @Test func throughTheGatewayTheMachineIsKept() {
+        #expect(FileLink.resolve("AHPApp/Views/ChatView.swift", base: gateway)?.uri
+            == "ahp-file:///my-mac-mini/ahp-client-ios/AHPApp/Views/ChatView.swift")
         #expect(FileLink.resolve("README.md", base: deployed)?.uri == "file://my-mac-mini/Users/me/repo/README.md")
-        #expect(FileLink.resolve("/etc/hosts", base: broker)?.uri == "ahp-file://my-mac-mini/etc/hosts")
+        #expect(FileLink.resolve("/etc/hosts", base: gateway)?.uri == "ahp-file://my-mac-mini/etc/hosts")
     }
 
     @Test func webLinksAreNotFiles() {

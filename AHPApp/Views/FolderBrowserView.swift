@@ -1,27 +1,27 @@
 import SwiftUI
 
-/// Folder URIs as hosts and brokers write them.
+/// Folder URIs as hosts and gateways write them.
 ///
 /// - `file:///Users/me/repo`: a host on one machine.
 /// - `file://<machine>/Users/me/repo`, `file://studio/D:/work`: the deployed
-///   broker, whose authority names the machine.
+///   gateway, whose authority names the machine.
 /// - `ahp-file:///<machine>/<path under its root>` and
-///   `ahp-file://<machine>/<absolute path>`: agent-host-broker's own scheme,
+///   `ahp-file://<machine>/<absolute path>`: ahp-gateway's own scheme,
 ///   where `ahp-file:///` itself lists the machines.
 enum FolderURI {
-    static let brokerScheme = "ahp-file"
-    /// The broker's list of machines.
-    static let brokerRoot = "ahp-file:///"
+    static let gatewayScheme = "ahp-file"
+    /// The gateway's list of machines.
+    static let gatewayRoot = "ahp-file:///"
 
     /// The path part, for showing: `/Users/me/repo`, `D:/work`.
     static func path(_ uri: String) -> String {
         guard let url = URL(string: uri), let scheme = url.scheme else { return uri }
         var path = url.path(percentEncoded: false)
-        if scheme == brokerScheme, (url.host() ?? "").isEmpty {
+        if scheme == gatewayScheme, (url.host() ?? "").isEmpty {
             // `ahp-file:///<machine>/<rel>`: the first segment is the machine.
             let parts = path.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
             path = parts.count > 1 ? "/" + parts[1] : "/"
-        } else if scheme != "file", scheme != brokerScheme {
+        } else if scheme != "file", scheme != gatewayScheme {
             return uri
         }
         // `/D:/work` is a Windows drive path; the leading slash is URI syntax.
@@ -35,14 +35,14 @@ enum FolderURI {
     static func machine(_ uri: String) -> String? {
         guard let url = URL(string: uri) else { return nil }
         if let host = url.host(percentEncoded: false), !host.isEmpty { return host }
-        if url.scheme == brokerScheme {
+        if url.scheme == gatewayScheme {
             return url.path(percentEncoded: false).split(separator: "/").first.map(String.init)
         }
         return nil
     }
 
     static func name(_ uri: String) -> String {
-        if uri == brokerRoot { return "Machines" }
+        if uri == gatewayRoot { return "Machines" }
         let path = path(uri)
         if path == "/", let machine = machine(uri) { return machine }
         return path.split(separator: "/").last.map(String.init) ?? path
@@ -53,12 +53,12 @@ enum FolderURI {
         return trimmed(url.appending(path: name, directoryHint: .isDirectory).absoluteString)
     }
 
-    /// Nil at the top: the filesystem root, a drive, or the broker's machine list.
+    /// Nil at the top: the filesystem root, a drive, or the gateway's machine list.
     static func parent(_ uri: String) -> String? {
-        guard uri != brokerRoot, let url = URL(string: uri) else { return nil }
-        if url.scheme == brokerScheme, (url.host() ?? "").isEmpty {
+        guard uri != gatewayRoot, let url = URL(string: uri) else { return nil }
+        if url.scheme == gatewayScheme, (url.host() ?? "").isEmpty {
             // A machine's root goes up to the list of machines.
-            return path(uri) == "/" ? brokerRoot : trimmed(url.deletingLastPathComponent().absoluteString)
+            return path(uri) == "/" ? gatewayRoot : trimmed(url.deletingLastPathComponent().absoluteString)
         }
         let path = path(uri)
         guard path != "/", !(path.count <= 3 && path.contains(":")) else { return nil }
@@ -66,9 +66,9 @@ enum FolderURI {
     }
 
     /// Without the trailing slash URL APIs add, so a chosen folder reads the
-    /// same as the ones hosts send. The broker root keeps its slash.
+    /// same as the ones hosts send. The gateway root keeps its slash.
     private static func trimmed(_ uri: String) -> String {
-        uri != brokerRoot && uri.hasSuffix("/") && !uri.hasSuffix(":///") ? String(uri.dropLast()) : uri
+        uri != gatewayRoot && uri.hasSuffix("/") && !uri.hasSuffix(":///") ? String(uri.dropLast()) : uri
     }
 }
 
@@ -152,7 +152,7 @@ private struct FolderListView: View {
     @State private var isLoading = true
     @State private var query = ""
 
-    private var isMachineList: Bool { uri == FolderURI.brokerRoot }
+    private var isMachineList: Bool { uri == FolderURI.gatewayRoot }
 
     private var visible: [FolderEntry] {
         entries.filter { entry in
@@ -185,7 +185,7 @@ private struct FolderListView: View {
                 } else {
                     ForEach(visible, id: \.name) { entry in
                         if entry.isDirectory, isMachineList {
-                            // The broker's list of machines: their names, not ids.
+                            // The gateway's list of machines: their names, not ids.
                             let machine = store.machine(forFolder: FolderURI.child(uri, entry.name))
                             folderRow(
                                 FolderURI.child(uri, entry.name),
@@ -239,7 +239,7 @@ private struct FolderListView: View {
             }
         }
         .swipeActions(edge: .leading) {
-            if let choose, folder != FolderURI.brokerRoot {
+            if let choose, folder != FolderURI.gatewayRoot {
                 Button("Choose") { choose(folder) }
                     .tint(.accentColor)
             }

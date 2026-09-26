@@ -477,14 +477,14 @@ struct InjectedTransportTests {
 
     @Test func connectionStageLabelsCountTheWait() {
         let start = Date(timeIntervalSince1970: 1_000)
-        #expect(ConnectionStage.idle.label(serverName: "Broker", now: start) == nil)
+        #expect(ConnectionStage.idle.label(serverName: "Gateway", now: start) == nil)
         #expect(ConnectionStage.opening(attempt: 1, of: 4).label(serverName: nil, now: start) == "Connecting…")
         #expect(ConnectionStage.opening(attempt: 3, of: 4).label(serverName: nil, now: start)
             == "Connecting (attempt 3 of 4)…")
-        #expect(ConnectionStage.waitingForServer(since: start).label(serverName: "Broker", now: start)
-            == "Waiting for Broker…")
+        #expect(ConnectionStage.waitingForServer(since: start).label(serverName: "Gateway", now: start)
+            == "Waiting for Gateway…")
         #expect(ConnectionStage.waitingForServer(since: start)
-            .label(serverName: "Broker", now: start.addingTimeInterval(7.4)) == "Waiting for Broker… 7s")
+            .label(serverName: "Gateway", now: start.addingTimeInterval(7.4)) == "Waiting for Gateway… 7s")
         #expect(ConnectionStage.retrying(attempt: 2, of: 4, at: start.addingTimeInterval(1.5))
             .label(serverName: nil, now: start) == "Couldn't connect. Retrying in 2s…")
     }

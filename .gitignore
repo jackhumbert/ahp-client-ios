@@ -16,7 +16,7 @@ AHPApp/Config/Signing.local.xcconfig
 # Local archives and IPAs (see README)
 build/
 
-# Local secrets for testing (broker token)
+# Local secrets for testing (gateway token)
 .local/
 
 # Local, per-machine notes and config (AGENTS.local.md etc.)

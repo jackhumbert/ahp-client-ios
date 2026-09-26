@@ -29,23 +29,29 @@ A native iOS (iPhone and iPad) **client** for the Agent Host Protocol, in Swift
 and SwiftUI. AHP is an external specification owned by Microsoft; we implement
 it, we do not design it.
 
-It is a fork of upstream's sample app `AHPApp`, not a from-scratch client. The
-protocol layer — generated wire types, the reducers, the WebSocket transport,
+It began as a fork of upstream's sample app `AHPApp` and has since grown its own
+features — machines behind an `ahp-gateway`, `ahp-file:` folders, file links.
+The protocol layer — generated wire types, the reducers, the WebSocket transport,
 `MultiHostClient` — is upstream's Swift package `AgentHostProtocol`, consumed
 unmodified from GitHub. This repository owns only the app on top of it.
 
-Sibling checkouts (cloned next to this one), all speaking the same spec revision:
+Its Python siblings live in one monorepo, `ahp-py`, cloned next to this one
+(`../ahp-py`) and all speaking the same spec revision:
 
-| Repository | Role |
+| Package | Role |
 |---|---|
-| `agent-host-protocol-py` | Python wire types, reducers, conformance corpora |
-| `agent-host-server-py` | Python host — the one this app is tested against |
-| `agent-host-client-py` | Python client |
-| `agent-host-broker-py` | Python broker |
+| `ahp-protocol` | Python wire types, reducers, conformance corpora |
+| `ahp-host` | Python host — the one this app is tested against |
+| `ahp-host-claude`, `ahp-host-acp` | Claude and any ACP agent as host providers |
+| `ahp-client` | Python client |
+| `ahp-gateway` | One endpoint in front of many hosts; the app's machine list comes from it |
+
+`uv sync --all-packages --all-extras` there gives one venv,
+`../ahp-py/.venv`, with every package installed.
 
 Current state: **working, pre-alpha.** Ported to spec 0.9.0; a full turn
-completes in the iOS 26.5 simulator against `python -m agent_host_server`. Tool
-approvals, input requests, terminals, reconnection and the broker are ported
+completes in the iOS 26.5 simulator against `python -m ahp_host`. Tool
+approvals, input requests, terminals, reconnection and the gateway are ported
 but not yet exercised against a host.
 
 The bundle ID is `com.jhumbert.agent-host-client` (upstream's
@@ -88,10 +94,10 @@ xcodebuild test -project AHPApp.xcodeproj -scheme AHPApp \
   -destination 'platform=iOS Simulator,name=<device>'
 ```
 
-The host to test against, from `../agent-host-server-py`:
+The host to test against, from `../ahp-py`:
 
 ```bash
-python -m agent_host_server --delay 0.05
+.venv/bin/python -m ahp_host --delay 0.05
 ```
 
 It listens on `127.0.0.1:4321`, which the simulator reaches directly. A
@@ -105,29 +111,29 @@ Code signing for a device reads `AHP_DEVELOPMENT_TEAM` from
 
 Before blaming the app for something missing on screen, look at the wire:
 
-- **A broker in the simulator**: Debug simulator builds read
+- **A gateway in the simulator**: Debug simulator builds read
   `AHP_DEBUG_SERVER` / `AHP_DEBUG_TOKEN` / `AHP_DEBUG_SERVER_NAME` at launch
   (`Store/DebugLaunchServer.swift`, compiled out of every other build), so a
   token reaches the app without being typed:
 
   ```bash
-  SIMCTL_CHILD_AHP_DEBUG_SERVER=wss://broker.example.com \
-  SIMCTL_CHILD_AHP_DEBUG_SERVER_NAME="Broker (test)" \
-  SIMCTL_CHILD_AHP_DEBUG_TOKEN="$(cat .local/broker-test.token)" \
+  SIMCTL_CHILD_AHP_DEBUG_SERVER=wss://gateway.example.com \
+  SIMCTL_CHILD_AHP_DEBUG_SERVER_NAME="Gateway (test)" \
+  SIMCTL_CHILD_AHP_DEBUG_TOKEN="$(cat .local/gateway-test.token)" \
     xcrun simctl launch <device> com.jhumbert.agent-host-client
   ```
 
   `.local/` is gitignored; keep tokens there, mode 0600, and never print or
   commit one.
-- **A local broker**: `scripts/local_broker.py` puts two local hosts behind the
-  sibling checkout's agent-host-broker on `127.0.0.1:4396` (no token) — see its
+- **A local gateway**: `scripts/local_gateway.py` puts two local hosts behind the
+  sibling checkout's ahp-gateway on `127.0.0.1:4396` (no token) — see its
   docstring. Folder URIs differ between that checkout (`ahp-file:`) and the
-  older brokers (`file://<machine>/`); `FolderURI` handles both, and
+  older gateways (`file://<machine>/`); `FolderURI` handles both, and
   `AHPAppTests/FolderURITests.swift` pins every shape.
 - **A reproducible host**: `scripts/fake_bash_host.py` serves one agent on
   `127.0.0.1:4397` whose every turn replays a Claude-Code-shaped `Bash` call
   (generic invocation message, command in `toolInput`). Run it with
-  `../agent-host-server-py/.venv/bin/python`.
+  `../ahp-py/.venv/bin/python`.
 
 ## Layout
 
@@ -149,11 +155,11 @@ wins.
   upstream's to fix: record it (evidence, not opinion) for reporting upstream,
   and work around it in the app with a comment pointing at the record. Forking
   the package would mean owning roughly 19,000 lines of generated types, reducers and client.
-- **Keep the fork mergeable.** Upstream keeps adapting this app to every spec
-  change. Prefer additions over rewrites of upstream files, and keep unrelated
-  reformatting out of diffs, so the next pin bump is a port rather than a
-  rewrite.
-- **Commits** are conventional (`feat:`, `fix:`, `docs:` …), as in the sibling
-  repositories.
+- **Take upstream's changes on purpose, not by merge.** Upstream keeps adapting
+  its sample app to every spec change, and this app has diverged from it
+  (gateway machines, folders, file links). On a pin bump, read upstream's app
+  diff and port what applies; do not bend new features to keep upstream's
+  files mergeable.
+- **Commits** are conventional (`feat:`, `fix:`, `docs:` …), as in `ahp-py`.
 - **If a feature is not documented, it does not exist.** A change is not
   finished until the README's claims still hold.

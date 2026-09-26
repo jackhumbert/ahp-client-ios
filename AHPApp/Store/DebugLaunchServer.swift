@@ -2,11 +2,11 @@ import Foundation
 
 #if DEBUG && targetEnvironment(simulator)
 /// Simulator-only: a server handed in at launch, so automated testing can
-/// reach a token-protected host (the broker) without anyone typing the token
+/// reach a token-protected host (the gateway) without anyone typing the token
 /// into a text field.
 ///
-///     SIMCTL_CHILD_AHP_DEBUG_SERVER=wss://broker.example.com \
-///     SIMCTL_CHILD_AHP_DEBUG_TOKEN="$(cat .local/broker-test.token)" \
+///     SIMCTL_CHILD_AHP_DEBUG_SERVER=wss://gateway.example.com \
+///     SIMCTL_CHILD_AHP_DEBUG_TOKEN="$(cat .local/gateway-test.token)" \
 ///       xcrun simctl launch <device> com.jhumbert.agent-host-client
 ///
 /// `simctl` strips the `SIMCTL_CHILD_` prefix. Compiled out of every device

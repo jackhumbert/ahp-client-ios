@@ -50,12 +50,12 @@ decoder. Confirm with a unit decode of `{"status": "suspended"}` before filing.
 
 ## 3. `SnapshotState` reports the wrong type's decoding error
 
-**Measured** at `v0.9.0`, 2026-09-26, through the broker. `SnapshotState`'s
+**Measured** at `v0.9.0`, 2026-09-26, through the gateway. `SnapshotState`'s
 `init(from:)` (`Generated/State.generated.swift`) tries each state type with
 `try?` and falls back to `try RootState(from:)`, so when nothing matches, the
 error that surfaces is always RootState's. A chat snapshot with one turn
 missing the required `Message.origin` (a host bug, fixed in
-`agent-host-server-py` `c680bbc`) showed up in the app as
+`ahp-host` `c680bbc`) showed up in the app as
 ``keyNotFound: 'agents' … Path: snapshot.state``. Decoding the same JSON as
 `ChatState` directly gave the real error: `keyNotFound: 'origin'`, path
 `turns[0].message`.

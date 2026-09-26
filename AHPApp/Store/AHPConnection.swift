@@ -328,8 +328,8 @@ actor AHPConnection {
     }
 
     /// The entries of a directory on the host's filesystem. A root-channel
-    /// command; behind a broker the URI must name the machine
-    /// (`file://<node>/path`), which is how the broker knows where to send it.
+    /// command; behind a gateway the URI must name the machine
+    /// (`file://<node>/path`), which is how the gateway knows where to send it.
     func resourceList(uri: String) async throws -> [DirectoryEntry] {
         let result: ResourceListResult = try await sendRequest(
             method: "resourceList",

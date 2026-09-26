@@ -1,11 +1,11 @@
 import AgentHostProtocol
 import Foundation
 
-/// A machine behind a broker, from `RootState._meta["agent-host-broker/nodes"]`.
+/// A machine behind a gateway, from `RootState._meta["ahp-gateway/nodes"]`.
 ///
-/// AHP has no notion of a machine: to the app a broker is one host, an agent
+/// AHP has no notion of a machine: to the app a gateway is one host, an agent
 /// offered on several machines is one agent, and a session's folder
-/// (`ahp-file:///<machine>/…`) says where it runs. The broker lists its
+/// (`ahp-file:///<machine>/…`) says where it runs. The gateway lists its
 /// machines in root `_meta` so the app can say "Claude on Studio", group by
 /// machine, and offer only the agents a folder's machine runs. A host that
 /// sends no list is one machine, and none of this shows.
@@ -19,11 +19,14 @@ struct Machine: Identifiable, Equatable, Hashable {
     /// Provider ids of the agents it runs; empty while it is not connected.
     let agents: [String]
 
-    static let metaKey = "agent-host-broker/nodes"
+    static let metaKey = "ahp-gateway/nodes"
+    /// What gateways sent before the rename from agent-host-broker. Remove
+    /// once no deployed gateway predates it.
+    static let legacyMetaKey = "agent-host-broker/nodes"
 
-    /// The broker's list, or empty when the host sent none.
+    /// The gateway's list, or empty when the host sent none.
     static func list(from meta: [String: AnyCodable]?) -> [Machine] {
-        guard let entries = meta?[metaKey]?.value as? [Any] else { return [] }
+        guard let entries = (meta?[metaKey] ?? meta?[legacyMetaKey])?.value as? [Any] else { return [] }
         return entries.compactMap { entry in
             guard let fields = entry as? [String: Any], let id = fields["id"] as? String, !id.isEmpty else {
                 return nil
@@ -31,7 +34,7 @@ struct Machine: Identifiable, Equatable, Hashable {
             return Machine(
                 id: id,
                 label: (fields["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id,
-                folder: fields["folder"] as? String ?? "\(FolderURI.brokerRoot)\(id)/",
+                folder: fields["folder"] as? String ?? "\(FolderURI.gatewayRoot)\(id)/",
                 connected: fields["connected"] as? Bool ?? true,
                 agents: (fields["agents"] as? [Any])?.compactMap { $0 as? String } ?? []
             )
@@ -46,7 +49,7 @@ struct Machine: Identifiable, Equatable, Hashable {
 }
 
 extension AppStore {
-    /// The machines behind the connected broker; empty for a single host.
+    /// The machines behind the connected gateway; empty for a single host.
     var machines: [Machine] {
         Machine.list(from: rootState.meta)
     }

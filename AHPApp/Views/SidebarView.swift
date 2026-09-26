@@ -368,7 +368,7 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $browsingFiles) {
             // The host's own root: its default directory, or through a
-            // broker in front of several machines, the list of machines.
+            // gateway in front of several machines, the list of machines.
             if let root = store.defaultDirectory {
                 FolderBrowserView(start: root)
                     .environment(store)
@@ -543,7 +543,7 @@ struct SidebarView: View {
         let summaries = store.sessionSummaries
         let agents: [SummaryCardView.AgentRow]
         if store.hasSeveralMachines {
-            // A broker in front of several machines: a row per machine, naming
+            // A gateway in front of several machines: a row per machine, naming
             // the agents it runs. An agent on two machines is one agent, so
             // per-agent rows would say nothing about where anything runs.
             agents = store.machines.map { machine in
@@ -570,7 +570,7 @@ struct SidebarView: View {
             }
         }
         return SummaryCardView(
-            // One agent: it is what this server is. Several (a broker in front
+            // One agent: it is what this server is. Several (a gateway in front
             // of several machines): the server is, and each gets a row.
             title: agents.count == 1 ? agents[0].name : (store.selectedServer?.name ?? "Agents"),
             agents: agents,

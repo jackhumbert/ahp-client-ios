@@ -240,7 +240,7 @@ final class AppStore {
             summary.provider = state.provider
             summary.title = state.title
             // Not `state.status`: hosts aggregate a session's status across
-            // its chats into the catalog summary (agent-host-server does), and
+            // its chats into the catalog summary (ahp-host does), and
             // the session channel's own field can stay Idle while a chat works.
             // Overlaying it greyed out the working dot on every open session.
             summary.activity = state.activity
@@ -258,7 +258,7 @@ final class AppStore {
     }
 
     /// What to call `provider` on screen: its `displayName`, not its id. Behind
-    /// a broker the ids are machine-scoped (`claude-my-mac-mini`) and the
+    /// a gateway the ids are machine-scoped (`claude-my-mac-mini`) and the
     /// display names are what tell them apart ("Claude (Mac mini)").
     func agentName(for provider: String) -> String {
         agents.first(where: { $0.provider == provider })?.displayName ?? provider
@@ -266,10 +266,10 @@ final class AppStore {
 
     /// Folders `provider`'s sessions worked in, most recent first.
     ///
-    /// A broker in front of several machines advertises no default directory —
+    /// A gateway in front of several machines advertises no default directory —
     /// no one folder is right for all of them — so these are the best starting
     /// points the app has. They are already machine-qualified URIs
-    /// (`file://<node>/…`), which is what browsing through a broker needs.
+    /// (`file://<node>/…`), which is what browsing through a gateway needs.
     /// Every agent's when `provider` is nil.
     func recentFolders(for provider: String?, limit: Int = 8) -> [String] {
         var seen = Set<String>()
@@ -281,11 +281,11 @@ final class AppStore {
             .map { $0 }
     }
 
-    /// True when this server is an agent-host-broker using its `ahp-file:`
+    /// True when this server is an ahp-gateway using its `ahp-file:`
     /// scheme, judged by its sessions' folders; its root lists the machines.
-    var speaksBrokerFolders: Bool {
+    var speaksGatewayFolders: Bool {
         sessionSummaries.contains { summary in
-            summary.workingDirectories?.contains { $0.hasPrefix("\(FolderURI.brokerScheme):") } == true
+            summary.workingDirectories?.contains { $0.hasPrefix("\(FolderURI.gatewayScheme):") } == true
         }
     }
 
@@ -594,7 +594,7 @@ final class AppStore {
         case .connected:
             // Coming back from the background, a connection that looks
             // connected may be dead, or may be fine. Throwing a live one away
-            // costs a whole handshake, which through a broker waits on every
+            // costs a whole handshake, which through a gateway waits on every
             // machine behind it, so ask it first.
             setConnectionStage(.checking)
             let alive = await connection.respondsToPing(within: foregroundPingTimeout)
@@ -845,12 +845,12 @@ final class AppStore {
                     applySnapshot(snapshot)
                 }
                 // The SDK's connect result rebuilds the root from a few fields
-                // and drops `_meta`, where agent-host-broker lists its
-                // machines. A broker in front of several machines roots its
+                // and drops `_meta`, where ahp-gateway lists its
+                // machines. A gateway in front of several machines roots its
                 // folders at that list (`ahp-file:///`); only then is there a
                 // list to fetch, so only then is the root asked for again,
                 // which returns it whole.
-                if result.defaultDirectory == FolderURI.brokerRoot,
+                if result.defaultDirectory == FolderURI.gatewayRoot,
                    let root = try? await connection.subscribe(resource: RootResourceURI) {
                     applySnapshot(root)
                 }

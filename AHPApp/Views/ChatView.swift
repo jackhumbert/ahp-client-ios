@@ -671,7 +671,7 @@ extension AppStore.Delivery {
 /// property that happens to share a name is left alone.
 ///
 /// - `autoApprove`: VS Code / Copilot's setting.
-/// - `permissionMode`: Claude Code's own modes, which `agent-host-server-claude`
+/// - `permissionMode`: Claude Code's own modes, which `ahp-host-claude`
 ///   exposes under Claude Code's names (Ask, Accept edits, Auto, Plan).
 private let permissionConfigKeys: [(key: String, values: Set<String>)] = [
     ("autoApprove", ["default", "autoApprove", "autopilot"]),

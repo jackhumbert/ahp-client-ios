@@ -13,7 +13,7 @@ Two things are pinned, and they must move together:
 | The Swift package the app links (`AgentHostProtocol`, `AgentHostProtocolClient`) | `exactVersion 0.9.0` | `AHPApp.xcodeproj/project.pbxproj`, `Package.resolved` |
 
 `v0.9.0` is the same spec revision the Python family pins
-(`agent-host-protocol-py/UPSTREAM.md`), so this app, the Python host and the
+(`ahp-py/packages/ahp-protocol/UPSTREAM.md`), so this app, the Python host and the
 Python client all speak the same protocol version.
 
 ## How the fork was cut
