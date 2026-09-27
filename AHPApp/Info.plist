@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Agent Host</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>
@@ -12,7 +14,7 @@
 		<false/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>AHPApp needs access to your local network to connect to AHP agent servers running on your computer.</string>
+	<string>Agent Host needs access to your local network to connect to agent hosts running on your computers.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_lnp._tcp.</string>

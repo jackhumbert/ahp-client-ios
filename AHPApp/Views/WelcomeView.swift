@@ -11,7 +11,7 @@ struct WelcomeView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
 
-            Text("AHP Client")
+            Text("Agent Host")
                 .font(.largeTitle.bold())
 
             Text("A SwiftUI client for the Agent Host Protocol")
