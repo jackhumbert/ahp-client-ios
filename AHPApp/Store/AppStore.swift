@@ -75,6 +75,10 @@ final class AppStore {
     /// Session URI → the chat URI subscribed on its behalf.
     private var sessionChatURIs: [String: String] = [:]
 
+    /// Session URI → a chat other than the default that the user opened: a
+    /// side chat, or a subagent's worker chat. Absent means the default chat.
+    private var selectedChatURIs: [String: String] = [:]
+
     /// Chat URIs with a `subscribe` in flight, to avoid duplicate subscribes.
     private var subscribingChats: Set<String> = []
 
@@ -200,6 +204,34 @@ final class AppStore {
     var currentChat: ChatState? {
         guard let uri = currentChatURI else { return nil }
         return chats[uri]
+    }
+
+    /// The selected session's chats a user can open, in the host's order:
+    /// every chat except hidden ones and archived ones, though the chat open
+    /// now is always listed.
+    var currentSessionChats: [ChatSummary] {
+        guard let session = currentSession else { return [] }
+        let open = currentChatURI
+        return session.chats.filter { chat in
+            if chat.resource == open { return true }
+            if chat.interactivity == .hidden { return false }
+            return !chat.status.contains(.isArchived)
+        }
+    }
+
+    /// The selected session's default chat, where its main conversation is.
+    var currentDefaultChatURI: String? {
+        guard let uri = selectedSessionURI, let session = sessions[uri] else { return nil }
+        return session.defaultChat ?? session.chats.first?.resource
+    }
+
+    /// True when the open chat is one the user can watch but not write to,
+    /// such as a subagent's worker chat: its turns are another agent's prompts.
+    var isCurrentChatReadOnly: Bool {
+        guard let uri = currentChatURI else { return false }
+        let interactivity = chats[uri]?.interactivity
+            ?? currentSession?.chats.first(where: { $0.resource == uri })?.interactivity
+        return interactivity == .readOnly || interactivity == .hidden
     }
 
     /// Questions the agent is waiting on in the current chat, oldest first.
@@ -1197,6 +1229,7 @@ final class AppStore {
             try await connection.disposeSession(session: uri)
             try await connection.unsubscribe(resource: uri)
             dropChats(forSession: uri)
+            selectedChatURIs.removeValue(forKey: uri)
             sessions.removeValue(forKey: uri)
             staleSessionURIs.remove(uri)
             syncingSessionURIs.remove(uri)
@@ -1266,7 +1299,8 @@ final class AppStore {
         attachments: [MessageAttachment]? = nil,
         delivery: Delivery = .next
     ) async {
-        guard let uri = selectedSessionURI, let chatURI = currentChatURI else { return }
+        guard let uri = selectedSessionURI, let chatURI = currentChatURI,
+              !isCurrentChatReadOnly else { return }
         let modelSelection = selectedModelIds[uri].map { ModelSelection(id: $0) }
         let message = Message(
             text: text,
@@ -1541,11 +1575,32 @@ final class AppStore {
         chats[chatURI] = chatReducer(state: state, action: action)
     }
 
-    /// The chat a session's conversation should be read from: its declared
-    /// default, or failing that its first chat.
+    /// The chat a session's conversation should be read from: the one the user
+    /// opened while the session still lists it, else its declared default, or
+    /// failing that its first chat.
     private func conversationChatURI(forSession uri: String) -> String? {
         guard let session = sessions[uri] else { return nil }
+        if let selected = selectedChatURIs[uri] {
+            if session.chats.contains(where: { $0.resource == selected }) {
+                return selected
+            }
+            selectedChatURIs.removeValue(forKey: uri)
+        }
         return session.defaultChat ?? session.chats.first?.resource
+    }
+
+    /// Open `chatURI` in the selected session in place of the chat shown now;
+    /// nil goes back to the default chat. A chat the session does not list is
+    /// ignored, so a stale link cannot strand the view on nothing.
+    func selectChat(_ chatURI: String?) {
+        guard let sessionURI = selectedSessionURI, let session = sessions[sessionURI] else { return }
+        if let chatURI, chatURI != session.defaultChat {
+            guard session.chats.contains(where: { $0.resource == chatURI }) else { return }
+            selectedChatURIs[sessionURI] = chatURI
+        } else {
+            selectedChatURIs.removeValue(forKey: sessionURI)
+        }
+        syncChatSubscription(forSession: sessionURI)
     }
 
     /// Keep exactly one chat subscribed per subscribed session: the one
@@ -1608,6 +1663,7 @@ final class AppStore {
             }
         case .sessionRemoved(let note):
             dropChats(forSession: note.session)
+            selectedChatURIs.removeValue(forKey: note.session)
             sessions.removeValue(forKey: note.session)
             staleSessionURIs.remove(note.session)
             syncingSessionURIs.remove(note.session)

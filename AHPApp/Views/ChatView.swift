@@ -129,6 +129,10 @@ struct ChatView: View {
                     isAtBottom = true
                     scrollToBottom(proxy, animated: false)
                 }
+                .onChange(of: store.currentChatURI) {
+                    isAtBottom = true
+                    scrollToBottom(proxy, animated: false)
+                }
                 .onChange(of: store.currentChat?.activeTurn?.responseParts.count) {
                     if isAtBottom {
                         scrollToBottom(proxy, animated: true)
@@ -208,6 +212,12 @@ struct ChatView: View {
             // scrollToBottom lands at the true visible bottom, not behind the bar.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 8) {
+                    if let work = store.currentChat?.backgroundWork, !work.isEmpty {
+                        BackgroundWorkBar(work: work) { uri in
+                            activeTerminalURI = uri
+                        }
+                    }
+
                     // Pending input requests (elicitation) — shown only when
                     // no in-progress tool call owns the request. The active
                     // tool card embeds its own "Respond" CTA in that case.
@@ -235,18 +245,22 @@ struct ChatView: View {
                         )
                     }
 
-                    InputBar(
-                        text: $inputText,
-                        isFocused: $inputFocused,
-                        modelPicker: SessionInlineAccessories(
-                            permissionModel: sessionPermissionPickerModel,
-                            modelPickerModel: sessionModelPickerModel
-                        )
-                    ) { delivery in
-                        guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                        let message = inputText
-                        inputText = ""
-                        Task { await store.sendMessage(message, delivery: delivery) }
+                    if store.isCurrentChatReadOnly {
+                        ReadOnlyChatBar()
+                    } else {
+                        InputBar(
+                            text: $inputText,
+                            isFocused: $inputFocused,
+                            modelPicker: SessionInlineAccessories(
+                                permissionModel: sessionPermissionPickerModel,
+                                modelPickerModel: sessionModelPickerModel
+                            )
+                        ) { delivery in
+                            guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            let message = inputText
+                            inputText = ""
+                            Task { await store.sendMessage(message, delivery: delivery) }
+                        }
                     }
                 }
             }
@@ -254,14 +268,8 @@ struct ChatView: View {
         .navigationTitle(chatTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // A smaller title than the navigation bar's own: chat titles are
-            // the first message, and long.
             ToolbarItem(placement: .principal) {
-                Text(chatTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .accessibilityAddTraits(.isHeader)
+                ChatTitleMenu(sessionTitle: chatTitle)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {

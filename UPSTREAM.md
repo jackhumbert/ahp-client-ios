@@ -51,4 +51,5 @@ the app's views read generated types directly.
   cached summary; `defaultChat` is merged alongside it here. The one SDK break
   is `ToolResultFileEditContent.diff`, now a typed `FileEditDiffStats` instead
   of `AnyCodable`. The 1.0.0 additions — chat background work, canvases,
-  `moveChat`, per-chat read and archive state — are decoded but not yet shown.
+  `moveChat`, per-chat read and archive state — were decoded but not shown;
+  chats and background work are now shown (see README).

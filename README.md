@@ -67,6 +67,14 @@ As inherited from upstream, plus the session settings:
   outputs
 - Tool-call cards show what actually ran — the shell command, or the file,
   pattern or URL — not only the host's one-line message
+- A session's other chats — side chats, forks, and the worker chat a subagent
+  runs in — from the menu under the chat's title, each marked by kind and
+  whether it is working. A subagent's tool result opens its chat; a worker
+  chat is watched, not written to, and offers the way back to the main chat.
+  Hidden and archived chats are left out
+- Work the agent left running after its turn — background shells and
+  subagents — in a strip above the message box: a shell opens its terminal, a
+  subagent its chat
 - Answer the agent's questions and tool confirmations
 - An interactive terminal (SwiftTerm)
 - Microsoft dev tunnels as a way to reach a host (GitHub sign-in)

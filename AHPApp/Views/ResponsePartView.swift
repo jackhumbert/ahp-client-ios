@@ -706,6 +706,7 @@ struct ToolCallPartView: View {
 struct ToolCallDetailSheet: View {
     let toolCall: ToolCallState
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
 
     var body: some View {
         NavigationStack {
@@ -749,6 +750,8 @@ struct ToolCallDetailSheet: View {
             }
             .navigationTitle(toolCall.baseFields.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            // A subagent's "Open" switches the chat behind this sheet.
+            .onChange(of: store.currentChatURI) { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -836,9 +839,7 @@ struct ToolResultContentView: View {
         case .terminal(let t):
             TerminalToolResultView(ref: t)
         case .subagent(let s):
-            Label(s.resource, systemImage: "person.2")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            SubagentResultView(subagent: s)
         case .unknown:
             Label("Result this app can't display", systemImage: "questionmark.square.dashed")
                 .font(.caption)
@@ -904,6 +905,53 @@ struct TerminalToolResultView: View {
         let cellHeight: CGFloat = 17
         let height = CGFloat(min(rows, 40)) * cellHeight
         return max(200, min(height, 680))
+    }
+}
+
+// MARK: - SubagentResultView
+
+/// A tool call that started a subagent: its title and task, opening the
+/// subagent's own worker chat when the session lists it.
+struct SubagentResultView: View {
+    let subagent: ToolResultSubagentContent
+    @Environment(AppStore.self) private var store
+
+    private var canOpen: Bool {
+        store.currentSession?.chats.contains { $0.resource == subagent.resource } == true
+    }
+
+    var body: some View {
+        Button {
+            store.selectChat(subagent.resource)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "person.2")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(subagent.title.isEmpty ? (subagent.agentName ?? "Subagent") : subagent.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    if let description = subagent.description, !description.isEmpty {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+                if canOpen {
+                    Text("Open")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canOpen)
+        .accessibilityHint(canOpen ? "Opens the subagent's chat" : "")
     }
 }
 

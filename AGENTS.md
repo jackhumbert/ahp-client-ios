@@ -65,11 +65,13 @@ one, while the evidence is in front of you.
 
 Since multi-chat, a session holds metadata and a list of chats; the
 conversation — turns, the active turn, queued messages, input requests — lives
-on a **chat** channel. `AppStore` subscribes each subscribed session's default
-chat alongside it (`syncChatSubscription(forSession:)`), keeps chat state in
-`chats`, and sends every conversation action to the chat URI. Views read the
-conversation from `currentChat` and pending questions from
-`currentInputRequests`, never from the session.
+on a **chat** channel. `AppStore` subscribes one chat per subscribed session
+alongside it (`syncChatSubscription(forSession:)`): the default, unless the
+user opened another with `selectChat(_:)` (a side chat, a subagent's worker
+chat) and the session still lists it. It keeps chat state in `chats` and sends
+every conversation action to that chat's URI. Views read the conversation from
+`currentChat` and pending questions from `currentInputRequests`, never from
+the session; `isCurrentChatReadOnly` hides the message box.
 
 Incoming actions are routed by which table their channel is registered in —
 never by URI scheme or prefix, because hosts choose their own URI shapes.
@@ -134,6 +136,12 @@ Before blaming the app for something missing on screen, look at the wire:
   `127.0.0.1:4397` whose every turn replays a Claude-Code-shaped `Bash` call
   (generic invocation message, command in `toolInput`). Run it with
   `../ahp-py/.venv/bin/python`.
+- **Subagents and background work**: `scripts/fake_subagent_host.py` serves one
+  agent on `127.0.0.1:4398` whose every turn opens a read-only worker chat
+  (linked from a `subagent` tool result) and lists it with a background shell;
+  both keep running after the turn ends, then leave the list.
+- **What the app received**: `xcrun simctl launch --console-pty …` prints the
+  app's `[AHP] Received action:` lines, one per action and channel.
 
 ## Layout
 
