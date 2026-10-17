@@ -1679,6 +1679,8 @@ final class AppStore {
         if let v = changes.project { summary.project = v }
         if let v = changes.annotations { summary.annotations = v }
         if let v = changes.workingDirectories { summary.workingDirectories = v }
+        if let v = changes.chats { summary.chats = v }
+        if let v = changes.defaultChat { summary.defaultChat = v }
         sessionSummariesCache[uri] = summary
     }
 

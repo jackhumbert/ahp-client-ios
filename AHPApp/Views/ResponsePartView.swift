@@ -820,11 +820,11 @@ struct ToolResultContentView: View {
                 VStack(alignment: .leading) {
                     Text("File edit")
                         .font(.caption.bold())
-                    if let diff = edit.diff?.value as? [String: Any] {
+                    if let diff = edit.diff {
                         HStack(spacing: 4) {
-                            Text("+\(diff["added"] as? Int ?? 0)")
+                            Text("+\(diff.added ?? 0)")
                                 .foregroundStyle(.green)
-                            Text("-\(diff["removed"] as? Int ?? 0)")
+                            Text("-\(diff.removed ?? 0)")
                                 .foregroundStyle(.red)
                         }
                         .font(.caption)

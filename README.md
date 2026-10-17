@@ -7,7 +7,7 @@ iPhone and iPad, iOS 26 and later.
 > ### ⚠️ Status: working, pre-alpha.
 >
 > A fork of `AHPApp`, the sample app in
-> [`microsoft/agent-host-protocol`][upstream], pinned to `v0.9.0`
+> [`microsoft/agent-host-protocol`][upstream], pinned to `v1.0.0`
 > ([`UPSTREAM.md`](UPSTREAM.md)). Upstream's app had not compiled against its
 > own package since the protocol moved conversations onto chat channels
 > ([`docs/deferred-upstream.md`](docs/deferred-upstream.md)); this fork is ported

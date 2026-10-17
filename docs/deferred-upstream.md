@@ -18,8 +18,10 @@ app's store and views were not. Later commits touched the app
 (`271edac3`, `80454fd0`, `b4016c0e`) without restoring the build, which is
 consistent with no CI job building it.
 
-Every Swift tag (`v0.5.2` … `v0.9.0`) postdates #213, so there is no release at
-which the app and package agree.
+Every Swift tag (`v0.5.2` … `v1.0.0`) postdates #213, so there is no release at
+which the app and package agree. **Still present at `v1.0.0`** (`5f16d81b`):
+the app still names `SessionInputAnswer`, `session.turns` and
+`sessionTurnCancelled`, and no workflow builds it.
 
 Symptoms at `v0.9.0`, first compiler pass: `cannot find type
 'SessionInputAnswer'`, `SessionSummary has no member 'workingDirectory'`,
@@ -44,6 +46,7 @@ unknown discriminant to `.unknown(AnyCodable)` and re-encodes it verbatim
 
 Consequence: a host that adds a terminal lifecycle status makes every terminal
 snapshot from it undecodable in the Swift client, not just unrendered.
+**Still present at `v1.0.0`** (`5f16d81b`).
 
 Not yet reproduced against a live host — this is a reading of the generated
 decoder. Confirm with a unit decode of `{"status": "suspended"}` before filing.
@@ -61,7 +64,8 @@ missing the required `Message.origin` (a host bug, fixed in
 `turns[0].message`.
 
 Consequence: any out-of-spec field in any non-root snapshot is reported as a
-missing `agents`, which points at the wrong channel entirely.
+missing `agents`, which points at the wrong channel entirely. **Still present
+at `v1.0.0`** (`5f16d81b`), which adds `CanvasState` to the same `try?` chain.
 
 **Suggested fix upstream:** pick the arm from `Snapshot.resource` (or keep the
 closest arm's error) instead of reporting the last fallback.

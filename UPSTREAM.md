@@ -9,10 +9,10 @@ Two things are pinned, and they must move together:
 
 | What | Pinned to | Where |
 |---|---|---|
-| The app source this fork started from | tag `v0.9.0` = commit `60706330f2f351b09f150d9a9c3c0eaedfc8e8b9` (= `spec/v0.9.0`) | this repository's history |
-| The Swift package the app links (`AgentHostProtocol`, `AgentHostProtocolClient`) | `exactVersion 0.9.0` | `AHPApp.xcodeproj/project.pbxproj`, `Package.resolved` |
+| Upstream's app source, ported up to | tag `v1.0.0` = commit `5f16d81bb7045b66d7bc768d244feab75002d943` (= `spec/v1.0.0`) | this repository's history |
+| The Swift package the app links (`AgentHostProtocol`, `AgentHostProtocolClient`) | `exactVersion 1.0.0` | `AHPApp.xcodeproj/project.pbxproj`, `Package.resolved` |
 
-`v0.9.0` is the same spec revision the Python family pins
+`v1.0.0` is the same spec revision the Python family pins
 (`ahp-py/packages/ahp-protocol/UPSTREAM.md`), so this app, the Python host and the
 Python client all speak the same protocol version.
 
@@ -27,7 +27,7 @@ brought over.
 Changes made on top of upstream at fork time:
 
 - The package reference was upstream's local `../../..` (the monorepo root);
-  it is now the remote repository at `exactVersion 0.9.0`. SwiftPM resolves
+  it is now the remote repository at an exact version. SwiftPM resolves
   bare `vX.Y.Z` tags, which upstream reserves for Swift releases.
 - `IPHONEOS_DEPLOYMENT_TARGET` lowered from `26.2` to `26.0`. The app already
   gates every iOS 26 API behind `#available(iOS 26.0, *)`.
@@ -43,3 +43,12 @@ the app's views read generated types directly.
    what applies — upstream adapts the app to each type change in the same PR
    that makes it, so that diff is the migration guide.
 3. Update both rows of the table above.
+
+## Pin history
+
+- **`v0.9.0` → `v1.0.0`.** Every spec change is additive. Upstream's app diff
+  is one line, merging `chats` from `root/sessionSummaryChanged` into the
+  cached summary; `defaultChat` is merged alongside it here. The one SDK break
+  is `ToolResultFileEditContent.diff`, now a typed `FileEditDiffStats` instead
+  of `AnyCodable`. The 1.0.0 additions — chat background work, canvases,
+  `moveChat`, per-chat read and archive state — are decoded but not yet shown.

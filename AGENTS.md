@@ -49,7 +49,7 @@ Its Python siblings live in one monorepo, `ahp-py`, cloned next to this one
 `uv sync --all-packages --all-extras` there gives one venv,
 `../ahp-py/.venv`, with every package installed.
 
-Current state: **working, pre-alpha.** Ported to spec 0.9.0; a full turn
+Current state: **working, pre-alpha.** Ported to spec 1.0.0; a full turn
 completes in the iOS 26.5 simulator against `python -m ahp_host`. Tool
 approvals, input requests, terminals, reconnection and the gateway are ported
 but not yet exercised against a host.
