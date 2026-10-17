@@ -6,8 +6,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/microsoft/agent-host-protocol.git",
       "state" : {
-        "revision" : "5f16d81bb7045b66d7bc768d244feab75002d943",
-        "version" : "1.0.0"
+        "revision" : "1ef0642965efaa7ef98caff287bca923fbc80ec6"
       }
     },
     {

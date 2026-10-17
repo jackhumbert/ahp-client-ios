@@ -9,12 +9,14 @@ Two things are pinned, and they must move together:
 
 | What | Pinned to | Where |
 |---|---|---|
-| Upstream's app source, ported up to | tag `v1.0.0` = commit `5f16d81bb7045b66d7bc768d244feab75002d943` (= `spec/v1.0.0`) | this repository's history |
-| The Swift package the app links (`AgentHostProtocol`, `AgentHostProtocolClient`) | `exactVersion 1.0.0` | `AHPApp.xcodeproj/project.pbxproj`, `Package.resolved` |
+| Upstream's app source, ported up to | `main` @ commit `1ef0642965efaa7ef98caff287bca923fbc80ec6` (spec `1.1.0`, not yet tagged) | this repository's history |
+| The Swift package the app links (`AgentHostProtocol`, `AgentHostProtocolClient`) | `revision 1ef0642965efaa7ef98caff287bca923fbc80ec6` | `AHPApp.xcodeproj/project.pbxproj`, `Package.resolved` |
 
-`v1.0.0` is the same spec revision the Python family pins
+`1ef06429` is the same upstream commit the Python family pins
 (`ahp-py/packages/ahp-protocol/UPSTREAM.md`), so this app, the Python host and the
-Python client all speak the same protocol version.
+Python client all speak the same protocol version. Both pin a commit on `main`
+rather than a tag because the hosts already keep 1.1.0 state (below); move both
+to `v1.1.0` once upstream tags it.
 
 ## How the fork was cut
 
@@ -35,7 +37,9 @@ Changes made on top of upstream at fork time:
 ## Moving the pin
 
 Exact, not `upToNextMinor`: the spec lands breaking changes in MINOR bumps, and
-the app's views read generated types directly.
+the app's views read generated types directly. That means `exactVersion` on a
+release tag, or `revision` on a commit when the Python family has moved ahead
+of a tag, as it has now.
 
 1. Bump the package requirement in `project.pbxproj` and run
    `xcodebuild -resolvePackageDependencies -project AHPApp.xcodeproj -scheme AHPApp`.
@@ -53,3 +57,15 @@ the app's views read generated types directly.
   of `AnyCodable`. The 1.0.0 additions — chat background work, canvases,
   `moveChat`, per-chat read and archive state — were decoded but not shown;
   chats and background work are now shown (see README).
+- **`v1.0.0` → `main` @ `1ef06429` (spec 1.1.0, untagged).** Followed the
+  Python family, which absorbed 1.1.0 ahead of its tag. Its hosts keep a chat's
+  state in 1.1.0's shape whatever version a client negotiates, and 1.1.0
+  changed that shape: steering and queued messages share `queuedMessages`,
+  each tagged with a `kind`, and `steeringMessage` is a deprecated mirror of a
+  steering entry. A 1.0.0 app showed a steering message twice after
+  subscribing, and kept a stale "Later" copy once the agent took it. The chat
+  now shows `ChatState.pendingMessages` (`Store/PendingMessages.swift`), which
+  reads the shared list by kind and adds the mirror only for a 1.0.0 host that
+  keeps steering nowhere else. Upstream's app diff is a doc comment. Nothing
+  else broke the build; chat config, TCP connections, `ModelInfo.vendor` and
+  channel flow control are decoded but not used.

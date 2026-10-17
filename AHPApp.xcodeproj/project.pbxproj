@@ -615,8 +615,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/microsoft/agent-host-protocol.git";
 			requirement = {
-				kind = exactVersion;
-				version = 1.0.0;
+				kind = revision;
+				revision = 1ef0642965efaa7ef98caff287bca923fbc80ec6;
 			};
 		};
 		AA000001304700000003 /* XCRemoteSwiftPackageReference "dev-tunnels-swift" */ = {

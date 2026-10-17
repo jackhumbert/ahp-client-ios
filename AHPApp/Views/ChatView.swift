@@ -81,31 +81,21 @@ struct ChatView: View {
                                     .id("active-\(activeTurn.id)")
                             }
 
-                            // Steering message — will be injected into the
-                            // current turn at the server's next opportunity.
-                            if let steering = chat.steeringMessage {
+                            // Messages waiting to be sent: a steering one
+                            // joins the turn in flight at the host's next
+                            // opportunity, a queued one starts a turn after it
+                            // (or at once when the chat is idle).
+                            ForEach(chat.pendingMessages, id: \.id) { msg in
+                                let steering = msg.kind == .steering
                                 PendingMessageView(
-                                    message: steering,
-                                    caption: "Next — joins this turn",
-                                    captionIcon: "arrow.turn.down.right",
-                                    onRemove: { Task { await store.removePendingMessage(kind: .steering, id: steering.id) } }
+                                    message: msg,
+                                    caption: steering ? "Next — joins this turn" : "Later — after this turn",
+                                    captionIcon: steering ? "arrow.turn.down.right" : "clock",
+                                    onRemove: {
+                                        Task { await store.removePendingMessage(kind: msg.kind ?? .queued, id: msg.id) }
+                                    }
                                 )
-                                .id("steering-\(steering.id)")
-                            }
-
-                            // Queued messages — auto-started as new turns
-                            // after the current turn completes (or immediately
-                            // when the session is idle).
-                            if let queued = chat.queuedMessages {
-                                ForEach(queued, id: \.id) { msg in
-                                    PendingMessageView(
-                                        message: msg,
-                                        caption: "Later — after this turn",
-                                        captionIcon: "clock",
-                                        onRemove: { Task { await store.removePendingMessage(kind: .queued, id: msg.id) } }
-                                    )
-                                    .id("queued-\(msg.id)")
-                                }
+                                .id("pending-\(msg.id)")
                             }
                         }
 
@@ -145,14 +135,7 @@ struct ChatView: View {
                         }
                     }
                 }
-                .onChange(of: store.currentChat?.queuedMessages?.count) {
-                    if isAtBottom {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            scrollToBottom(proxy, animated: true)
-                        }
-                    }
-                }
-                .onChange(of: store.currentChat?.steeringMessage?.id) {
+                .onChange(of: store.currentChat?.pendingMessages.map(\.id)) {
                     if isAtBottom {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             scrollToBottom(proxy, animated: true)
