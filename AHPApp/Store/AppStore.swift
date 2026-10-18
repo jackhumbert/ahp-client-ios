@@ -109,6 +109,11 @@ final class AppStore {
     /// Currently selected session URI.
     var selectedSessionURI: String?
 
+    /// A session the app has been asked to open, such as a delegated session
+    /// followed from its parent's tool call. `ContentView` observes it, selects
+    /// the session (switching server if needed) and clears it.
+    var requestedSessionURI: String?
+
     /// Session URIs whose cached full state must be revalidated with a fresh
     /// `subscribe` before we can trust them after a full reconnect/connect.
     private var staleSessionURIs: Set<String> = []
@@ -234,6 +239,21 @@ final class AppStore {
         return interactivity == .readOnly || interactivity == .hidden
     }
 
+    /// True when the open chat is an interactive worker chat: a tool opened
+    /// it, and the host takes only steering messages into it, and only while
+    /// its turn runs (no new turns, no queued messages).
+    var isCurrentChatSteerOnly: Bool {
+        guard let uri = currentChatURI else { return false }
+        let origin = chats[uri]?.origin
+            ?? currentSession?.chats.first(where: { $0.resource == uri })?.origin
+        return Self.isSteerOnly(origin: origin, readOnly: isCurrentChatReadOnly)
+    }
+
+    static func isSteerOnly(origin: ChatOrigin?, readOnly: Bool) -> Bool {
+        guard !readOnly, case .tool = origin else { return false }
+        return true
+    }
+
     /// Questions the agent is waiting on in the current chat, oldest first.
     ///
     /// Since 0.9.0 an input request is not a list on the session but a
@@ -282,6 +302,47 @@ final class AppStore {
             merged[uri] = summary
         }
         return merged.values.sorted { $0.modifiedAt > $1.modifiedAt }
+    }
+
+    /// Sessions that `parentURI` delegated work to, newest first.
+    func delegatedSessions(of parentURI: String) -> [SessionSummary] {
+        Self.delegatedSessions(of: parentURI, in: sessionSummaries)
+    }
+
+    /// The sessions started by one tool call of one chat, newest first.
+    func delegatedSessions(forToolCall id: String, inChat chat: String) -> [SessionSummary] {
+        Self.delegatedSessions(forToolCall: id, inChat: chat, in: sessionSummaries)
+    }
+
+    /// Summaries to list at the top level: a delegated session whose parent is
+    /// listed is shown under that parent instead. Orphans stay.
+    var topLevelSessionSummaries: [SessionSummary] {
+        Self.topLevel(sessionSummaries)
+    }
+
+    static func delegatedSessions(
+        of parentURI: String, in summaries: [SessionSummary]
+    ) -> [SessionSummary] {
+        summaries.filter { DelegationOrigin($0.origin)?.session == parentURI }
+            .sorted { $0.modifiedAt > $1.modifiedAt }
+    }
+
+    static func delegatedSessions(
+        forToolCall id: String, inChat chat: String, in summaries: [SessionSummary]
+    ) -> [SessionSummary] {
+        summaries.filter {
+            guard let origin = DelegationOrigin($0.origin) else { return false }
+            return origin.toolCallID == id && origin.chat == chat
+        }
+        .sorted { $0.modifiedAt > $1.modifiedAt }
+    }
+
+    static func topLevel(_ summaries: [SessionSummary]) -> [SessionSummary] {
+        let listed = Set(summaries.map(\.resource))
+        return summaries.filter { summary in
+            guard let parent = DelegationOrigin(summary.origin)?.session else { return true }
+            return !listed.contains(parent)
+        }
     }
 
     /// Available agents from root state.
@@ -1309,6 +1370,10 @@ final class AppStore {
             model: modelSelection
         )
         let hasActiveTurn = chats[chatURI]?.activeTurn != nil
+        let steerOnly = isCurrentChatSteerOnly
+        // A steer-only chat rejects new turns and queued messages.
+        if steerOnly && !hasActiveTurn { return }
+        let delivery = steerOnly ? .next : delivery
 
         let action: StateAction
         if hasActiveTurn {
@@ -1368,6 +1433,93 @@ final class AppStore {
             duration: duration
         ))
         await dispatchChatAction(action, chatURI: chatURI)
+    }
+
+    /// The turn the host would resume in `chat`, if any. Mirrors the package
+    /// reducer's `chatTurnResume` guard, which silently ignores anything else:
+    /// no active turn, the turn is the last one, it ended in `.error`, and its
+    /// last part is an error the host marked `resumable` (keyed on that flag,
+    /// never on the error type).
+    static func resumableTurnID(in chat: ChatState) -> String? {
+        guard chat.activeTurn == nil,
+              let turn = chat.turns.last,
+              turn.state == .error,
+              case .error(let part) = turn.responseParts.last,
+              part.resumable == true
+        else { return nil }
+        return turn.id
+    }
+
+    /// The resumable turn in the chat at `uri`, if it is subscribed.
+    func resumableTurnID(inChat uri: String) -> String? {
+        chats[uri].flatMap(Self.resumableTurnID(in:))
+    }
+
+    /// Resume the current chat's turn that a host restart cut off.
+    func resumeTurn() async {
+        guard !isCurrentChatReadOnly,
+              let chatURI = currentChatURI,
+              let turnId = resumableTurnID(inChat: chatURI) else { return }
+        let action = StateAction.chatTurnResume(ChatTurnResumeAction(
+            type: .chatTurnResume,
+            turnId: turnId
+        ))
+        await dispatchChatAction(action, chatURI: chatURI)
+    }
+
+    /// Where a change to a config property is written.
+    enum ConfigWriteTarget: Equatable {
+        case chat, session, none
+    }
+
+    /// The channel a change to `schema`'s property belongs on: the chat when
+    /// the property is chat-mutable, else the session when session-mutable,
+    /// else nowhere. Read-only properties are never written.
+    static func configWriteTarget(for schema: SessionConfigPropertySchema?) -> ConfigWriteTarget {
+        guard let schema, schema.readOnly != true else { return .none }
+        if schema.chatMutable == true { return .chat }
+        if schema.sessionMutable == true { return .session }
+        return .none
+    }
+
+    /// A config value as a chat sees it: the chat's own value if it has one,
+    /// else the session's.
+    static func effectiveConfigValue(
+        _ key: String,
+        chatValues: [String: AnyCodable]?,
+        sessionValues: [String: AnyCodable]?
+    ) -> AnyCodable? {
+        chatValues?[key] ?? sessionValues?[key]
+    }
+
+    /// The effective value of `key` for the chat at `chatURI` (the current
+    /// session's own value when the chat does not override it).
+    func effectiveConfigValue(_ key: String, chatURI: String?) -> AnyCodable? {
+        Self.effectiveConfigValue(
+            key,
+            chatValues: chatURI.flatMap { chats[$0]?.config?.values },
+            sessionValues: currentSession?.config?.values
+        )
+    }
+
+    /// Update a config value where its schema says it can change: on the
+    /// current chat, else on the current session.
+    func setConfigValue(property: String, value: AnyCodable) async {
+        let schema = currentSession?.config?.schema.properties[property]
+        switch Self.configWriteTarget(for: schema) {
+        case .chat:
+            guard let chatURI = currentChatURI else { return }
+            if effectiveConfigValue(property, chatURI: chatURI) == value { return }
+            let action = StateAction.chatConfigChanged(ChatConfigChangedAction(
+                type: .chatConfigChanged,
+                config: [property: value]
+            ))
+            await dispatchChatAction(action, chatURI: chatURI)
+        case .session:
+            await setSessionConfigValue(property: property, value: value)
+        case .none:
+            break
+        }
     }
 
     /// Update a mutable session config value for the current session.

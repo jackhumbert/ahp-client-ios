@@ -71,6 +71,33 @@ struct SessionFolderGroup: Identifiable, Hashable {
     }
 }
 
+/// One row of the session list: a session and how deep it sits under the
+/// session that delegated to it.
+struct SessionTreeRow: Identifiable {
+    let summary: SessionSummary
+    let depth: Int
+
+    var id: String { summary.resource }
+    /// Leading space for a delegated session, smaller than a card's own padding.
+    var inset: CGFloat { CGFloat(depth) * 20 }
+
+    /// `root`, then the sessions it delegated to (newest first), each followed
+    /// by its own. A session is listed once, whatever the origins say.
+    static func rows(for root: SessionSummary, in summaries: [SessionSummary]) -> [SessionTreeRow] {
+        var seen: Set<String> = [root.resource]
+        var rows = [SessionTreeRow(summary: root, depth: 0)]
+        func visit(_ parent: SessionSummary, depth: Int) {
+            for child in AppStore.delegatedSessions(of: parent.resource, in: summaries)
+            where seen.insert(child.resource).inserted {
+                rows.append(SessionTreeRow(summary: child, depth: depth))
+                visit(child, depth: depth + 1)
+            }
+        }
+        visit(root, depth: 1)
+        return rows
+    }
+}
+
 // MARK: - SidebarView
 
 /// Sidebar listing sessions with a "New Session" button and connection controls.
@@ -95,7 +122,8 @@ struct SidebarView: View {
 
     private static let machinePrefix = "machine:"
 
-    private var filteredSummaries: [SessionSummary] {
+    /// Every session the filter and search let through, delegated ones included.
+    private var matchingSummaries: [SessionSummary] {
         var summaries = store.sessionSummaries
         if let agentFilter {
             if agentFilter.hasPrefix(Self.machinePrefix) {
@@ -112,6 +140,18 @@ struct SidebarView: View {
             || store.agentLabel(for: $0).localizedCaseInsensitiveContains(searchText)
             || ($0.workingDirectory ?? "").localizedCaseInsensitiveContains(searchText)
         }
+    }
+
+    /// What the list shows at its top level. A delegated session hangs under
+    /// its parent, but only when the parent passed the filter too: a search
+    /// that matches just the child lists the child on its own.
+    private var filteredSummaries: [SessionSummary] {
+        AppStore.topLevel(matchingSummaries)
+    }
+
+    /// `summary` and the sessions it delegated to, indented by depth.
+    private func nestedRows(_ summary: SessionSummary) -> [SessionTreeRow] {
+        SessionTreeRow.rows(for: summary, in: matchingSummaries)
     }
 
     // Time-based grouping
@@ -402,7 +442,10 @@ struct SidebarView: View {
                 .textCase(.uppercase)
 
             ForEach(sessions, id: \.resource) { summary in
-                sessionButton(for: summary, showModel: false)
+                ForEach(nestedRows(summary)) { row in
+                    sessionButton(for: row.summary, showModel: false)
+                        .padding(.leading, row.inset)
+                }
             }
         }
     }
@@ -429,7 +472,10 @@ struct SidebarView: View {
             }
 
             ForEach(sessions, id: \.resource) { summary in
-                sessionButton(for: summary, showFolder: false)
+                ForEach(nestedRows(summary)) { row in
+                    sessionButton(for: row.summary, showFolder: false)
+                        .padding(.leading, row.inset)
+                }
             }
 
             if hasMore {

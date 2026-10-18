@@ -25,6 +25,9 @@ As inherited from upstream, plus the session settings:
   connection that still answers a `ping` is kept rather than rebuilt, and while
   one is being made the app says which stage it is at (connecting, waiting for
   the server with a running count, loading sessions, retrying)
+- Resume a turn a host restart cut off: the reply ends with a **Resume** button
+  that reopens the turn, and questions the turn had asked are marked withdrawn.
+  The restart marker is an ahp-py `_meta` extension a stock host never sends
 - Several agents on one server: the session list's card shows each agent by
   name with its own counts, and tapping one narrows the list to it
 - Several machines behind ahp-gateway (which lists them in root `_meta`):
@@ -41,6 +44,10 @@ As inherited from upstream, plus the session settings:
   appears in the New Chat sheet and is sent with `createSession`. The chat
   screen shows the approval mode it was created with; a host that allows
   changing it mid-session gets a picker instead
+- Approval mode and effort per chat: where the host marks them chat-mutable
+  (AHP 1.1.0; the Claude Code host does for both), the approval picker and an
+  **Effort** picker change the current chat alone, and other chats keep the
+  session's values
 - Choose what shows under each reply (Settings → Reply Details): time
   received, duration, model, tool calls, input/output/cached tokens, in any
   order — time received by default
@@ -57,6 +64,11 @@ As inherited from upstream, plus the session settings:
   that expand (Settings → Tool Calls); a call waiting on you is always a card.
   A call's details show its input and output, with JSON indented and
   coloured (keys kept in the order the tool sent them)
+- A workflow run's progress, above its reply: a header with the workflow's
+  name and status, each phase with its steps (label, model, status, "Waiting
+  for you" when a step awaits input) and the run's token total. A step that
+  has a chat opens it. The header replaces the run's phase lines. The flow
+  progress is an ahp-py `_meta` extension a stock host never sends
 - Browse the session's files and open them — markdown rendered, code with line
   numbers, images — from the chat's folder button; links in replies to files
   (`[a](src/a.swift:42)`, relative or absolute) open the file at that line
@@ -71,11 +83,20 @@ As inherited from upstream, plus the session settings:
 - A session's other chats — side chats, forks, and the worker chat a subagent
   runs in — from the menu under the chat's title, each marked by kind and
   whether it is working. A subagent's tool result opens its chat; a worker
-  chat is watched, not written to, and offers the way back to the main chat.
-  Hidden and archived chats are left out
+  chat is watched and offers the way back to the main chat; one the host marks
+  steerable also takes messages while its turn runs (below). Hidden and
+  archived chats are left out
+- Steer a worker chat while it runs: a subagent's worker chat that the host
+  can steer accepts messages only while its turn is running, and they join that
+  turn. The input bar offers only **Next**; when no turn runs, the chat is
+  read-only and says messages can join a running turn
 - Work the agent left running after its turn — background shells and
   subagents — in a strip above the message box: a shell opens its terminal, a
   subagent its chat
+- Delegated sessions: a session another session's tool call started (an ahp-py
+  `_meta` extension a stock host never sends) is nested under its parent in the
+  session list, and the tool call lists it as **Open session**. A delegated
+  session's header links back to its parent when the parent is listed
 - Answer the agent's questions and tool confirmations
 - An interactive terminal (SwiftTerm)
 - Microsoft dev tunnels as a way to reach a host (GitHub sign-in)

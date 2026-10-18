@@ -99,10 +99,14 @@ enum ResponseSegment: Identifiable {
 /// Response parts in the chosen tool-call style.
 struct ResponsePartsView: View {
     let parts: [ResponsePart]
+    /// True when a `FlowRunHeader` shows the turn's run, which carries the
+    /// run and phase notices.
+    var hideFlowNotices = false
     @AppStorage(ToolCallStyle.storageKey) private var style: ToolCallStyle = .cards
 
     var body: some View {
-        ForEach(ResponseSegment.make(parts, style: style)) { segment in
+        let shown = hideFlowNotices ? parts.filter { !FlowRunView.isFlowNotification($0) } : parts
+        ForEach(ResponseSegment.make(shown, style: style)) { segment in
             switch segment {
             case .part(_, let part):
                 ResponsePartView(part: part)

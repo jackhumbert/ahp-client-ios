@@ -255,13 +255,16 @@ struct BackgroundWorkItem: Identifiable, Equatable {
 /// Stands in for the message box in a chat the user can only watch, such as a
 /// subagent's worker chat, with the way back to the main conversation.
 struct ReadOnlyChatBar: View {
+    /// Replaces the default line, for a chat that is only quiet for now.
+    var caption = "Another agent writes to this chat. You can watch it here."
+
     @Environment(AppStore.self) private var store
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "eye")
                 .foregroundStyle(.secondary)
-            Text("Another agent writes to this chat. You can watch it here.")
+            Text(caption)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

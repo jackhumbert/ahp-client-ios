@@ -12,8 +12,9 @@ struct FolderSessionsView: View {
         return folderPath.split(separator: "/").last.map(String.init) ?? folderPath
     }
 
+    /// Top-level sessions of this folder; delegated ones nest under their parent.
     private var sessions: [SessionSummary] {
-        store.sessionSummaries.filter { summary in
+        store.topLevelSessionSummaries.filter { summary in
             let wd = summary.workingDirectory ?? ""
             if folderPath.isEmpty {
                 return wd.isEmpty
@@ -56,7 +57,10 @@ struct FolderSessionsView: View {
                                 .textCase(.uppercase)
 
                             ForEach(sessions, id: \.resource) { summary in
-                                sessionButton(for: summary)
+                                ForEach(SessionTreeRow.rows(for: summary, in: store.sessionSummaries)) { row in
+                                    sessionButton(for: row.summary)
+                                        .padding(.leading, row.inset)
+                                }
                             }
                         }
                     }

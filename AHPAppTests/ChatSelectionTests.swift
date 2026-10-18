@@ -67,6 +67,15 @@ struct ChatSelectionTests {
         #expect(!store.isCurrentChatReadOnly)
     }
 
+    @Test func onlyAWritableToolChatIsSteerOnly() {
+        let tool = ChatOrigin.tool(ChatOriginTool(chat: Self.main, toolCallId: "call-1"))
+        let side = ChatOrigin.sideChat(ChatOriginSideChat(kind: .sideChat, chat: Self.main, turnId: "t1"))
+        #expect(AppStore.isSteerOnly(origin: tool, readOnly: false))
+        #expect(!AppStore.isSteerOnly(origin: tool, readOnly: true))
+        #expect(!AppStore.isSteerOnly(origin: nil, readOnly: false))
+        #expect(!AppStore.isSteerOnly(origin: side, readOnly: false))
+    }
+
     @Test func hiddenAndArchivedChatsAreNotOffered() {
         let store = Self.store()
         #expect(store.currentSessionChats.map(\.resource) == [Self.main, Self.side, Self.worker])

@@ -24,12 +24,27 @@ struct ChatView: View {
     private let bottomID = "chat-bottom-sentinel"
     private var sessionPermissionPickerModel: SessionPermissionPickerModel? {
         guard let session = store.currentSession else { return nil }
-        return SessionPermissionPickerModel(session: session)
+        return SessionPermissionPickerModel(session: session, chatValues: currentChatConfigValues)
+    }
+    private var sessionEffortPickerModel: SessionPermissionPickerModel? {
+        guard let session = store.currentSession else { return nil }
+        return SessionPermissionPickerModel(effortOf: session, chatValues: currentChatConfigValues)
+    }
+    /// The current chat's own config values, which win over the session's.
+    private var currentChatConfigValues: [String: AnyCodable]? {
+        store.currentChatURI.flatMap { store.chats[$0]?.config?.values }
     }
     private var sessionModelPickerModel: SessionModelPickerModel? {
         guard let session = store.currentSession else { return nil }
         let selectedModelId = store.selectedSessionURI.flatMap { store.selectedModelId(for: $0) }
         return SessionModelPickerModel(session: session, agents: store.agents, selectedModelId: selectedModelId)
+    }
+
+    /// What started the open session, when another session delegated it.
+    private var delegationOrigin: DelegationOrigin? {
+        store.selectedSessionURI
+            .flatMap { uri in store.sessionSummaries.first { $0.resource == uri } }
+            .flatMap { DelegationOrigin($0.origin) }
     }
 
     /// True when the active turn has at least one streaming or running tool
@@ -66,6 +81,10 @@ struct ChatView: View {
                         if store.currentSessionRequiresAuth {
                             AuthRequiredPanel(session: store.currentSession)
                                 .padding(.top, 24)
+                        }
+
+                        if let origin = delegationOrigin {
+                            DelegationOriginLink(origin: origin)
                         }
 
                         if let chat = store.currentChat {
@@ -230,14 +249,19 @@ struct ChatView: View {
 
                     if store.isCurrentChatReadOnly {
                         ReadOnlyChatBar()
+                    } else if store.isCurrentChatSteerOnly && store.currentChat?.activeTurn == nil {
+                        ReadOnlyChatBar(caption: "Messages can join this chat's turn while it runs")
                     } else {
                         InputBar(
                             text: $inputText,
                             isFocused: $inputFocused,
                             modelPicker: SessionInlineAccessories(
                                 permissionModel: sessionPermissionPickerModel,
+                                effortModel: sessionEffortPickerModel,
                                 modelPickerModel: sessionModelPickerModel
-                            )
+                            ),
+                            // A steer-only chat takes messages that join its turn, nothing else.
+                            deliveries: store.isCurrentChatSteerOnly ? [.next] : AppStore.Delivery.allCases
                         ) { delivery in
                             guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                             let message = inputText
@@ -526,6 +550,8 @@ struct InputBar<ModelPicker: View>: View {
     var isFocused: FocusState<Bool>.Binding
     /// Sits in the box's bottom-left corner, across from Send.
     var modelPicker: ModelPicker?
+    /// The deliveries the menu offers while a turn runs.
+    var deliveries: [AppStore.Delivery] = AppStore.Delivery.allCases
     /// How to deliver it only matters while a turn is running.
     let onSubmit: (AppStore.Delivery) -> Void
 
@@ -567,7 +593,7 @@ struct InputBar<ModelPicker: View>: View {
                     // and offers Now / Later on a long press.
                     if canSend {
                         Menu {
-                            ForEach(AppStore.Delivery.allCases) { delivery in
+                            ForEach(deliveries) { delivery in
                                 Button {
                                     submit(delivery)
                                 } label: {
@@ -581,7 +607,7 @@ struct InputBar<ModelPicker: View>: View {
                             submit(.next)
                         }
                         .accessibilityLabel("Send")
-                        .accessibilityHint("Joins the current turn. Hold for Now or Later.")
+                        .accessibilityHint(deliveries.count > 1 ? "Joins the current turn. Hold for Now or Later." : "Joins the current turn.")
                     }
                     Button {
                         Task { await store.cancelTurn() }
@@ -688,14 +714,42 @@ private struct SessionPermissionPickerModel {
     let options: [SessionPermissionOption]
     let selectedValue: String
     /// False when the host fixes the setting for the session's life (not
-    /// `sessionMutable`, or `readOnly`): the current mode is shown, not offered.
+    /// chat- or session-mutable, or `readOnly`): the current mode is shown, not offered.
     let isMutable: Bool
+    /// The icon beside the shown value.
+    var systemImage = "lock.shield"
+    /// "This chat" when the shown value is the chat's own, not the session's.
+    var caption: String?
 
     var selectedLabel: String {
         options.first(where: { $0.value == selectedValue })?.label ?? selectedValue
     }
 
-    init?(session: SessionState) {
+    /// The effort picker: a string `effort` property with an `enum`.
+    init?(effortOf session: SessionState, chatValues: [String: AnyCodable]?) {
+        guard let config = session.config,
+              let property = config.schema.properties["effort"],
+              let choices = SessionConfigSection.options(for: property) else { return nil }
+        let options = choices.map { SessionPermissionOption(value: $0.value, label: $0.label) }
+        let effective = AppStore.effectiveConfigValue(
+            "effort", chatValues: chatValues, sessionValues: config.values
+        )?.value as? String
+        let fallback = property.default?.value as? String
+        self.key = "effort"
+        self.title = property.title
+        self.options = options
+        self.selectedValue = [effective, fallback].compactMap { $0 }
+            .first { value in options.contains(where: { $0.value == value }) } ?? options[0].value
+        self.isMutable = Self.isMutable(property)
+        self.systemImage = "gauge.with.dots.needle.50percent"
+        self.caption = chatValues?[key] != nil ? "This chat" : nil
+    }
+
+    private static func isMutable(_ property: SessionConfigPropertySchema) -> Bool {
+        (property.chatMutable == true || property.sessionMutable == true) && property.readOnly != true
+    }
+
+    init?(session: SessionState, chatValues: [String: AnyCodable]? = nil) {
         guard let config = session.config else { return nil }
         let match = permissionConfigKeys.lazy.compactMap { candidate -> (String, SessionConfigPropertySchema, [AnyCodable], [String])? in
             guard let property = config.schema.properties[candidate.key],
@@ -729,7 +783,9 @@ private struct SessionPermissionPickerModel {
 
         guard !options.isEmpty else { return nil }
 
-        let currentValue = config.values[key]?.value as? String
+        let currentValue = AppStore.effectiveConfigValue(
+            key, chatValues: chatValues, sessionValues: config.values
+        )?.value as? String
         let selectedValue = currentValue.flatMap { value in
             options.contains(where: { $0.value == value }) ? value : nil
         } ?? "default"
@@ -738,7 +794,8 @@ private struct SessionPermissionPickerModel {
         self.title = property.title
         self.options = options
         self.selectedValue = selectedValue
-        self.isMutable = property.sessionMutable == true && property.readOnly != true
+        self.isMutable = Self.isMutable(property)
+        self.caption = chatValues?[key] != nil ? "This chat" : nil
     }
 }
 
@@ -772,12 +829,16 @@ private struct SessionModelPickerModel {
 /// corner across from Send.
 private struct SessionInlineAccessories: View {
     let permissionModel: SessionPermissionPickerModel?
+    let effortModel: SessionPermissionPickerModel?
     let modelPickerModel: SessionModelPickerModel?
 
     var body: some View {
         HStack(spacing: 14) {
             if let permissionModel {
                 SessionPermissionPickerView(model: permissionModel, inline: true)
+            }
+            if let effortModel {
+                SessionPermissionPickerView(model: effortModel, inline: true)
             }
             if let modelPickerModel {
                 SessionModelPickerView(model: modelPickerModel, inline: true)
@@ -798,7 +859,7 @@ private struct SessionPermissionPickerView: View {
         } else {
             // Fixed when the session was created: show it, don't offer it.
             SessionAccessoryButtonLabel(
-                systemImage: "lock.shield",
+                systemImage: model.systemImage,
                 text: model.selectedLabel,
                 isMenu: false,
                 inline: inline
@@ -817,7 +878,7 @@ private struct SessionPermissionPickerView: View {
                 Button {
                     guard option.value != model.selectedValue else { return }
                     Task {
-                        await store.setSessionConfigValue(
+                        await store.setConfigValue(
                             property: model.key,
                             value: AnyCodable(option.value)
                         )
@@ -832,13 +893,13 @@ private struct SessionPermissionPickerView: View {
             }
         } label: {
             SessionAccessoryButtonLabel(
-                systemImage: "lock.shield",
+                systemImage: model.systemImage,
                 text: model.selectedLabel,
                 inline: inline
             )
         }
         .accessibilityLabel(model.title)
-        .accessibilityValue(model.selectedLabel)
+        .accessibilityValue(model.caption.map { "\(model.selectedLabel), \($0)" } ?? model.selectedLabel)
         .tint(.primary)
     }
 }
@@ -942,6 +1003,34 @@ private extension View {
     }
 }
 
+// MARK: - DelegationOriginLink
+
+/// "Started by <parent>" at the top of a delegated session, a link back to the
+/// parent while the session list has it.
+struct DelegationOriginLink: View {
+    let origin: DelegationOrigin
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        if let parent = store.sessionSummaries.first(where: { $0.resource == origin.session }) {
+            Button {
+                store.requestedSessionURI = parent.resource
+            } label: {
+                Label(
+                    "Started by \(parent.title.isEmpty ? "New Chat" : parent.title)",
+                    systemImage: "arrow.turn.up.left"
+                )
+                .font(.caption)
+                .lineLimit(1)
+                .foregroundStyle(Color.accentColor)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the session that started this one")
+        }
+    }
+}
+
 // MARK: - TurnView (completed)
 
 struct TurnView: View {
@@ -953,8 +1042,14 @@ struct TurnView: View {
             // User message
             UserBubble(text: turn.message.text, attachments: turn.message.attachments)
 
+            let flow = FlowRunView.fold(parts: turn.responseParts, turnState: turn.state, isActive: false)
+            if let flow {
+                FlowRunHeader(run: flow)
+            }
+
             // Response parts
-            ResponsePartsView(parts: turn.responseParts)
+            ResponsePartsView(parts: turn.responseParts, hideFlowNotices: flow != nil)
+                .environment(\.shownTurnID, turn.id)
 
             if turn.state == .cancelled {
                 Label("Cancelled", systemImage: "xmark.circle")
@@ -980,7 +1075,12 @@ struct ActiveTurnView: View {
         VStack(alignment: .leading, spacing: 12) {
             UserBubble(text: turn.message.text, attachments: turn.message.attachments)
 
-            ResponsePartsView(parts: turn.responseParts)
+            let flow = FlowRunView.fold(parts: turn.responseParts, turnState: nil, isActive: true)
+            if let flow {
+                FlowRunHeader(run: flow)
+            }
+
+            ResponsePartsView(parts: turn.responseParts, hideFlowNotices: flow != nil)
 
             // Streaming indicator
             HStack(spacing: 6) {

@@ -36,16 +36,48 @@ struct ResponsePartView: View {
 
 // MARK: - ErrorResponsePartView
 
+/// The completed turn whose parts are being drawn, for parts that act on it.
+private struct ShownTurnIDKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var shownTurnID: String? {
+        get { self[ShownTurnIDKey.self] }
+        set { self[ShownTurnIDKey.self] = newValue }
+    }
+}
+
 struct ErrorResponsePartView: View {
     let part: ErrorResponsePart
+    @Environment(AppStore.self) private var store
+    @Environment(\.shownTurnID) private var turnID
+
+    /// A host restart cut this turn off and the host offers to pick it up.
+    private var canResume: Bool {
+        guard part.resumable == true, let turnID,
+              let chatURI = store.currentChatURI else { return false }
+        return store.resumableTurnID(inChat: chatURI) == turnID
+    }
 
     var body: some View {
-        Label(part.error.message, systemImage: "exclamationmark.triangle.fill")
-            .font(.footnote)
-            .foregroundStyle(.red)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.red.opacity(0.1), in: Capsule())
+        VStack(alignment: .leading, spacing: 8) {
+            Label(part.error.message, systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.red.opacity(0.1), in: Capsule())
+            if canResume {
+                Button {
+                    Task { await store.resumeTurn() }
+                } label: {
+                    Label("Resume", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
     }
 }
 
@@ -81,6 +113,12 @@ struct SystemNotificationPartView: View {
         }
     }
 
+    /// The host withdrew the turn's open questions because it restarted
+    /// (`_meta["ahp-py/restart"].event`, an ahp-py extension).
+    private var isInputWithdrawn: Bool {
+        part.meta?["ahp-py/restart"]?.stringField("event") == "inputWithdrawn"
+    }
+
     private var notice: some View {
         Label {
             Text(text)
@@ -89,7 +127,7 @@ struct SystemNotificationPartView: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
-            Image(systemName: "info.circle")
+            Image(systemName: isInputWithdrawn ? "arrow.clockwise.circle" : "info.circle")
                 .foregroundStyle(.secondary)
         }
         .padding(10)
@@ -172,6 +210,42 @@ struct ReasoningPartView: View {
     }
 }
 
+// MARK: - DelegatedSessionRows
+
+/// An "Open session" row for each session one tool call of the open chat
+/// started, possibly on another host. Nothing when the call delegated nothing.
+struct DelegatedSessionRows: View {
+    let toolCallID: String
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        if let chat = store.currentChatURI {
+            ForEach(store.delegatedSessions(forToolCall: toolCallID, inChat: chat), id: \.resource) { summary in
+                Button {
+                    store.requestedSessionURI = summary.resource
+                } label: {
+                    HStack(spacing: 8) {
+                        SessionStatusDot(status: summary.status)
+                        Text(summary.title.isEmpty ? "Open session" : summary.title)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        Text("Open session")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .padding(.leading, 4)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the session this call started")
+            }
+        }
+    }
+}
+
 // MARK: - ToolCallPartView
 
 struct ToolCallPartView: View {
@@ -190,10 +264,13 @@ struct ToolCallPartView: View {
     }
 
     var body: some View {
-        if isCompact {
-            compactRow
-        } else {
-            card
+        VStack(alignment: .leading, spacing: 6) {
+            if isCompact {
+                compactRow
+            } else {
+                card
+            }
+            DelegatedSessionRows(toolCallID: toolCall.toolCallId)
         }
     }
 

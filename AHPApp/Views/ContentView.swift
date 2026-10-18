@@ -36,6 +36,12 @@ struct ContentView: View {
                 navigationPath = []
             }
         }
+        .onChange(of: store.requestedSessionURI) { _, newValue in
+            guard let uri = newValue else { return }
+            store.requestedSessionURI = nil
+            Task { await store.selectSession(uri: uri) }
+            navigationPath = [uri]
+        }
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environment(store)
