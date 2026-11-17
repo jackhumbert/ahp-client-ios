@@ -61,7 +61,9 @@ As inherited from upstream, plus the session settings:
   with a button to drop it, and a message can be images alone. Each is sent
   embedded in the message as a JPEG, shrunk to 1568 px on its long edge and
   at most 500 KB, and is shown as a picture in the conversation (tap to see
-  it whole). What the agent makes of an image is up to the host
+  it whole). What the agent makes of an image is up to the host; where the
+  session's model says it has no vision (`supportsVision: false`), the
+  picture button is hidden and Paste takes text only
 - Select any part of a reply or your own message (drag the handles, as in
   Notes). **Reply** in the selection menu quotes it into the message box as a
   markdown blockquote, with a blank line to type under; replying again adds

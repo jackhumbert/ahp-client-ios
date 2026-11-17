@@ -105,6 +105,27 @@ struct ComposerImagesTests {
         #expect(file.embeddedImage == nil)
     }
 
+    // MARK: Vision
+
+    @Test func onlyAModelThatSaysItCannotSeeTurnsImagesOff() {
+        let agents = [AgentInfo(provider: "p", displayName: "P", description: "", models: [
+            SessionModelInfo(id: "sees", provider: "p", name: "Sees", supportsVision: true),
+            SessionModelInfo(id: "blind", provider: "p", name: "Blind", supportsVision: false),
+            SessionModelInfo(id: "silent", provider: "p", name: "Silent"),
+        ])]
+        func accepted(_ model: String?, provider: String = "p") -> Bool {
+            ComposerImage.accepted(byModel: model, provider: provider, agents: agents)
+        }
+        #expect(accepted("sees"))
+        #expect(!accepted("blind"))
+        // The host never said, the session is on the default model, or the
+        // model is not one the agent lists: images stay.
+        #expect(accepted("silent"))
+        #expect(accepted(nil))
+        #expect(accepted("unlisted"))
+        #expect(accepted("blind", provider: "other"))
+    }
+
     // MARK: Paste
 
     @Test func pasteIsOfferedWhenThePasteboardHoldsOnlyAnImage() {

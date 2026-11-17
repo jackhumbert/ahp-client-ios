@@ -19,6 +19,16 @@ nonisolated struct ComposerImage: Identifiable, Sendable {
         self.thumbnail = thumbnail
     }
 
+    /// Whether to offer images for a session of `provider` set to `modelId`.
+    /// Only a model that says `supportsVision: false` turns them off: a host
+    /// that leaves it out, or a session on the default model, keeps them.
+    static func accepted(byModel modelId: String?, provider: String, agents: [AgentInfo]) -> Bool {
+        guard let modelId,
+              let model = agents.first(where: { $0.provider == provider })?
+                  .models.first(where: { $0.id == modelId }) else { return true }
+        return model.supportsVision != false
+    }
+
     /// The images as a message's attachments: embedded, base64, in order.
     static func attachments(_ images: [ComposerImage]) -> [MessageAttachment] {
         images.enumerated().map { index, image in
@@ -194,7 +204,8 @@ struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     var maxLines = 8
-    var onPasteImages: ([UIImage]) -> Void
+    /// Nil leaves Paste to text alone.
+    var onPasteImages: (([UIImage]) -> Void)?
 
     func makeUIView(context: Context) -> ImagePastingTextView {
         let view = ImagePastingTextView()

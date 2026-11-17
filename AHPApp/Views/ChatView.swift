@@ -43,6 +43,16 @@ struct ChatView: View {
         return SessionModelPickerModel(session: session, agents: store.agents, selectedModelId: selectedModelId)
     }
 
+    /// False only when the model chosen for this session says it cannot see.
+    private var acceptsImages: Bool {
+        guard let session = store.currentSession else { return true }
+        return ComposerImage.accepted(
+            byModel: store.selectedSessionURI.flatMap { store.selectedModelId(for: $0) },
+            provider: session.provider,
+            agents: store.agents
+        )
+    }
+
     /// What started the open session, when another session delegated it.
     private var delegationOrigin: DelegationOrigin? {
         store.selectedSessionURI
@@ -259,6 +269,7 @@ struct ChatView: View {
                             text: $inputText,
                             isFocused: $inputFocused,
                             images: $inputImages,
+                            acceptsImages: acceptsImages,
                             modelPicker: SessionInlineAccessories(
                                 permissionModel: sessionPermissionPickerModel,
                                 effortModel: sessionEffortPickerModel,
@@ -268,7 +279,7 @@ struct ChatView: View {
                             deliveries: store.isCurrentChatSteerOnly ? [.next] : AppStore.Delivery.allCases
                         ) { delivery in
                             // Images alone are a message too.
-                            let images = inputImages
+                            let images = acceptsImages ? inputImages : []
                             guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                     || !images.isEmpty else { return }
                             let message = inputText
@@ -564,6 +575,8 @@ struct InputBar<ModelPicker: View>: View {
     @Binding var isFocused: Bool
     /// Images to send with the message, picked from Photos or pasted.
     @Binding var images: [ComposerImage]
+    /// False hides the picture button and leaves Paste to text.
+    var acceptsImages = true
     /// Sits in the box's bottom-left corner, across from Send.
     var modelPicker: ModelPicker?
     /// The deliveries the menu offers while a turn runs.
@@ -579,21 +592,23 @@ struct InputBar<ModelPicker: View>: View {
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (acceptsImages && !images.isEmpty)
     }
 
     private let containerRadius: CGFloat = 20
 
     var body: some View {
         VStack(spacing: 0) {
-            if !images.isEmpty {
+            if acceptsImages, !images.isEmpty {
                 ComposerImageStrip(images: $images)
             }
 
             // Text field row. Paste takes images as well as text.
-            ComposerTextView(text: $text, isFocused: $isFocused) { pasted in
-                attach(pasted)
-            }
+            ComposerTextView(
+                text: $text,
+                isFocused: $isFocused,
+                onPasteImages: acceptsImages ? { attach($0) } : nil
+            )
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("Message the agent…")
@@ -609,14 +624,16 @@ struct InputBar<ModelPicker: View>: View {
 
             // Toolbar row
             HStack(spacing: 12) {
-                PhotosPicker(selection: $pickedPhotos, maxSelectionCount: 6, matching: .images) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 32)
+                if acceptsImages {
+                    PhotosPicker(selection: $pickedPhotos, maxSelectionCount: 6, matching: .images) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Attach photos")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Attach photos")
                 if let modelPicker {
                     modelPicker
                 }
