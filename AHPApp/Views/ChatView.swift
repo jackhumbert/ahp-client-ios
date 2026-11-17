@@ -1,4 +1,5 @@
 import AgentHostProtocol
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -7,7 +8,9 @@ struct ChatView: View {
     @Environment(AppStore.self) private var store
     @AppStorage("showSessionDebugStatus") private var showSessionDebugStatus = false
     @State private var inputText = ""
-    @FocusState private var inputFocused: Bool
+    /// Images picked or pasted into the message box, sent with the next message.
+    @State private var inputImages: [ComposerImage] = []
+    @State private var inputFocused = false
     /// Tracks whether the scroll position is at (or near) the bottom.
     @State private var isAtBottom = true
     /// URI of an interactive terminal to navigate to.
@@ -255,6 +258,7 @@ struct ChatView: View {
                         InputBar(
                             text: $inputText,
                             isFocused: $inputFocused,
+                            images: $inputImages,
                             modelPicker: SessionInlineAccessories(
                                 permissionModel: sessionPermissionPickerModel,
                                 effortModel: sessionEffortPickerModel,
@@ -263,10 +267,20 @@ struct ChatView: View {
                             // A steer-only chat takes messages that join its turn, nothing else.
                             deliveries: store.isCurrentChatSteerOnly ? [.next] : AppStore.Delivery.allCases
                         ) { delivery in
-                            guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            // Images alone are a message too.
+                            let images = inputImages
+                            guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    || !images.isEmpty else { return }
                             let message = inputText
                             inputText = ""
-                            Task { await store.sendMessage(message, delivery: delivery) }
+                            inputImages = []
+                            Task {
+                                await store.sendMessage(
+                                    message,
+                                    attachments: images.isEmpty ? nil : ComposerImage.attachments(images),
+                                    delivery: delivery
+                                )
+                            }
                         }
                     }
                 }
@@ -540,14 +554,16 @@ private struct SessionDebugStatusBar: View {
 // MARK: - InputBar
 
 extension InputBar where ModelPicker == EmptyView {
-    init(text: Binding<String>, isFocused: FocusState<Bool>.Binding, onSubmit: @escaping () -> Void) {
-        self.init(text: text, isFocused: isFocused, modelPicker: nil) { _ in onSubmit() }
+    init(text: Binding<String>, isFocused: Binding<Bool>, onSubmit: @escaping () -> Void) {
+        self.init(text: text, isFocused: isFocused, images: .constant([]), modelPicker: nil) { _ in onSubmit() }
     }
 }
 
 struct InputBar<ModelPicker: View>: View {
     @Binding var text: String
-    var isFocused: FocusState<Bool>.Binding
+    @Binding var isFocused: Bool
+    /// Images to send with the message, picked from Photos or pasted.
+    @Binding var images: [ComposerImage]
     /// Sits in the box's bottom-left corner, across from Send.
     var modelPicker: ModelPicker?
     /// The deliveries the menu offers while a turn runs.
@@ -556,32 +572,51 @@ struct InputBar<ModelPicker: View>: View {
     let onSubmit: (AppStore.Delivery) -> Void
 
     @Environment(AppStore.self) private var store
+    @State private var pickedPhotos: [PhotosPickerItem] = []
 
     private var isStreaming: Bool {
         store.currentChat?.activeTurn != nil
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty
     }
 
     private let containerRadius: CGFloat = 20
 
     var body: some View {
         VStack(spacing: 0) {
-            // Text field row
-            TextField("Message the agent…", text: $text, axis: .vertical)
-                .lineLimit(1...8)
-                .focused(isFocused)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .font(.body)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+            if !images.isEmpty {
+                ComposerImageStrip(images: $images)
+            }
+
+            // Text field row. Paste takes images as well as text.
+            ComposerTextView(text: $text, isFocused: $isFocused) { pasted in
+                attach(pasted)
+            }
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text("Message the agent…")
+                        .font(.body)
+                        .foregroundStyle(Color(.placeholderText))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
             // Toolbar row
             HStack(spacing: 12) {
+                PhotosPicker(selection: $pickedPhotos, maxSelectionCount: 6, matching: .images) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Attach photos")
                 if let modelPicker {
                     modelPicker
                 }
@@ -637,11 +672,35 @@ struct InputBar<ModelPicker: View>: View {
         .glassInputBackground(cornerRadius: containerRadius)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
+        .onChange(of: pickedPhotos) { _, picked in
+            guard !picked.isEmpty else { return }
+            pickedPhotos = []
+            Task {
+                var loaded: [UIImage] = []
+                for item in picked {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        loaded.append(image)
+                    }
+                }
+                attach(loaded)
+            }
+        }
     }
 
     private func submit(_ delivery: AppStore.Delivery) {
-        isFocused.wrappedValue = false
+        isFocused = false
         onSubmit(delivery)
+    }
+
+    /// Encodes off the main thread — a full-size photo takes a moment — and
+    /// adds what encoded, in order.
+    private func attach(_ picked: [UIImage]) {
+        guard !picked.isEmpty else { return }
+        Task {
+            let encoded = await Task.detached { picked.compactMap { ComposerImage($0) } }.value
+            images.append(contentsOf: encoded)
+        }
     }
 
     private func circle(systemImage: String, fill: Color, foreground: Color, ring: Bool = false) -> some View {
@@ -1314,7 +1373,7 @@ private struct AuthRequiredPanel: View {
 
 private struct InputBarPreviewWrapper: View {
     @State private var text = ""
-    @FocusState private var isFocused: Bool
+    @State private var isFocused = false
 
     var body: some View {
         InputBar(text: $text, isFocused: $isFocused) { }

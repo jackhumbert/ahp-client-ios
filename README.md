@@ -55,6 +55,13 @@ As inherited from upstream, plus the session settings:
   in flight, **Later** runs after it, **Now** stops it and sends yours
   (long-press Send). Waiting messages can be cancelled; a message that joined
   a turn is shown where it joined
+- Send images with a message: pick them from Photos (the picture button in
+  the message box) or **paste** one copied anywhere — a screenshot, a photo,
+  an image from a web page. They wait as thumbnails above what you type, each
+  with a button to drop it, and a message can be images alone. Each is sent
+  embedded in the message as a JPEG, shrunk to 1568 px on its long edge and
+  at most 500 KB, and is shown as a picture in the conversation (tap to see
+  it whole). What the agent makes of an image is up to the host
 - Select any part of a reply or your own message (drag the handles, as in
   Notes). **Reply** in the selection menu quotes it into the message box as a
   markdown blockquote, with a blank line to type under; replying again adds

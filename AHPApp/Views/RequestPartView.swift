@@ -15,11 +15,16 @@ struct UserBubble: View {
         self.parsed = ParsedUserMessage(raw: text)
     }
 
+    /// Images embedded in the message, shown as pictures rather than pills.
+    private var images: [MessageEmbeddedResourceAttachment] {
+        attachments?.compactMap(\.embeddedImage) ?? []
+    }
+
     /// All pills: context tags + file attachments, unified style.
     private var allPills: [ContextPill] {
         var result = parsed.pills
         if let attachments, !attachments.isEmpty {
-            for (i, a) in attachments.enumerated() {
+            for (i, a) in attachments.enumerated() where a.embeddedImage == nil {
                 let icon = attachmentIcon(displayKind: a.displayKind)
                 let label = a.label
                 let content = a.contentString
@@ -43,7 +48,14 @@ struct UserBubble: View {
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 6) {
-                messageBubble
+                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                    AttachedImage(attachment: image)
+                }
+
+                // A message can be images alone.
+                if !parsed.displayText.isEmpty || images.isEmpty {
+                    messageBubble
+                }
 
                 if !allPills.isEmpty {
                     pillsView
@@ -326,7 +338,7 @@ struct ParsedUserMessage {
 /// Wraps InputBar so FocusState can be provided in a #Preview context.
 private struct InputBarPreviewWrapper: View {
     @State private var text = ""
-    @FocusState private var isFocused: Bool
+    @State private var isFocused = false
 
     var body: some View {
         InputBar(text: $text, isFocused: $isFocused) { }
