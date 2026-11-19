@@ -1037,12 +1037,97 @@ struct SubagentResultView: View {
 struct ContentRefView: View {
     let ref: ResourceResponsePart
 
+    @Environment(AppStore.self) private var store
+    @State private var image: UIImage?
+    @State private var failed = false
+    @State private var showsFull = false
+
+    /// Images already fetched, by content URI. A content URI names its bytes
+    /// (a hash), so a cached image never goes stale; scrolling a long chat
+    /// back and forth would otherwise refetch every picture.
+    private static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+
+    private var isImage: Bool { ref.contentType?.hasPrefix("image/") == true }
+
     var body: some View {
+        if isImage, !failed {
+            imageBody
+        } else {
+            chip
+        }
+    }
+
+    /// An image the agent showed, drawn inline; a tap opens it full size.
+    @ViewBuilder
+    private var imageBody: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 400, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .onTapGesture { showsFull = true }
+                    .accessibilityLabel("Image")
+                    .accessibilityAddTraits(.isButton)
+            } else {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(.systemGray6))
+                    .frame(height: 160)
+                    .overlay(ProgressView())
+            }
+        }
+        .task(id: ref.uri) { await load() }
+        .sheet(isPresented: $showsFull) {
+            if let image {
+                NavigationStack {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(uiImage: image)
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsFull = false }
+                        }
+                        ToolbarItem(placement: .primaryAction) {
+                            ShareLink(item: Image(uiImage: image), preview: SharePreview("Image", image: Image(uiImage: image)))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func load() async {
+        let key = ref.uri as NSString
+        if let cached = Self.images.object(forKey: key) {
+            image = cached
+            return
+        }
+        do {
+            let file = try await store.readFile(ref.uri)
+            guard let decoded = UIImage(data: file.data) else {
+                failed = true
+                return
+            }
+            Self.images.setObject(decoded, forKey: key, cost: file.data.count)
+            image = decoded
+        } catch {
+            // Gone from the host's content store (it does not survive a
+            // restart) or not readable here: say what it was instead.
+            failed = true
+        }
+    }
+
+    private var chip: some View {
         HStack {
             Image(systemName: contentIcon)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading) {
-                Text(ref.uri)
+                Text(isImage && failed ? "Image no longer available" : ref.uri)
                     .font(.caption)
                     .lineLimit(1)
                 if let type = ref.contentType {
