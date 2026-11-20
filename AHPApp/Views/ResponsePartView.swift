@@ -1042,9 +1042,10 @@ struct ContentRefView: View {
     @State private var failed = false
     @State private var showsFull = false
 
-    /// Images already fetched, by content URI. A content URI names its bytes
-    /// (a hash), so a cached image never goes stale; scrolling a long chat
-    /// back and forth would otherwise refetch every picture.
+    /// Images already fetched, by URI and nonce, so scrolling a long chat back
+    /// and forth doesn't refetch every picture. A host content-store URI names
+    /// its bytes (a hash); a file URI does not, so a host pointing at a file it
+    /// may overwrite sets `nonce` (its mtime, say), and a new nonce refetches.
     private static let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.totalCostLimit = 64 * 1024 * 1024
@@ -1052,6 +1053,8 @@ struct ContentRefView: View {
     }()
 
     private var isImage: Bool { ref.contentType?.hasPrefix("image/") == true }
+
+    private var cacheKey: String { ref.nonce.map { "\(ref.uri)#\($0)" } ?? ref.uri }
 
     var body: some View {
         if isImage, !failed {
@@ -1081,7 +1084,7 @@ struct ContentRefView: View {
                     .overlay(ProgressView())
             }
         }
-        .task(id: ref.uri) { await load() }
+        .task(id: cacheKey) { await load() }
         .sheet(isPresented: $showsFull) {
             if let image {
                 NavigationStack {
@@ -1102,7 +1105,7 @@ struct ContentRefView: View {
     }
 
     private func load() async {
-        let key = ref.uri as NSString
+        let key = cacheKey as NSString
         if let cached = Self.images.object(forKey: key) {
             image = cached
             return
